@@ -8,7 +8,7 @@ Imports System.Threading
 
 
 Class MyTcpListener
-    Public connectDone As New ManualResetEvent(False)
+    Public connectDone As New ManualResetEvent(False) '
     Public sendDone As New ManualResetEvent(False)
     Public receiveDone As New ManualResetEvent(False)
 
