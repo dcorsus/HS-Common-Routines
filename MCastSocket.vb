@@ -29,7 +29,16 @@ Public Class MCastSocket
     Private MymcastAddress As String = ""
     Private LocalIEP As IPEndPoint
     Private RemoteEP As IPEndPoint
+    Private receivedByteCount As Integer = 0
 
+    Public Property BytesReceived As Integer
+        Get
+            BytesReceived = receivedByteCount
+        End Get
+        Set(value As Integer)
+            receivedByteCount = value
+        End Set
+    End Property
 
     Public Class StateObject
         ' State object for receiving data from remote device.
@@ -46,13 +55,14 @@ Public Class MCastSocket
         MySocket = Nothing
         MySocketIsClosed = True
         LocalIEP = IPLocal
-        If UPnPDebuglevel > DebugLevel.dlOff Then Log("ConnectSocket called with mcastAddress = " & MymcastAddress & " and mcastPort = " & mcastPort & " and LocalIpAddress = " & IPLocal.Address.ToString & " and LocalIPPort = " & IPLocal.Port.ToString, LogType.LOG_TYPE_INFO)
+        If upnpDebuglevel > DebugLevel.dlOff Then Log("MCastSocket.ConnectSocket called with mcastAddress = " & MymcastAddress & " and mcastPort = " & mcastPort & " and LocalIpAddress = " & IPLocal.Address.ToString & " and LocalIPPort = " & IPLocal.Port.ToString, LogType.LOG_TYPE_INFO)
         Try
-            remoteEP = New IPEndPoint(mcastAddress, mcastPort)
+            RemoteEP = New IPEndPoint(mcastAddress, mcastPort)
             ' Create a multicast socket.
-            MySocket = New Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp)
-            MySocket.ExclusiveAddressUse = False
-            MySocket.ReceiveTimeout = 0
+            MySocket = New Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp) With {
+                .ExclusiveAddressUse = False,
+                .ReceiveTimeout = 0
+            }
             MySocket.SetSocketOption(Net.Sockets.SocketOptionLevel.Socket, Net.Sockets.SocketOptionName.ReuseAddress, True)
             ' Bind this endpoint to the multicast socket.
             MySocket.Bind(LocalIEP)
@@ -61,11 +71,12 @@ Public Class MCastSocket
             Dim mcastOption As MulticastOption
             mcastOption = New MulticastOption(mcastAddress, IPLocal.Address)
             MySocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, mcastOption)
+            MySocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 4)     ' added 10/19/2019 It appears default MC = 1 whereas unicast = 128
             MySocket.ReceiveBufferSize = StateObject.BufferSize
             MySocketIsClosed = False
             Return MySocket
         Catch ex As Exception
-            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in ConnectSocket for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.ConnectSocket for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             ConnectSocket = Nothing
         End Try
     End Function
@@ -79,9 +90,9 @@ Public Class MCastSocket
     Public Sub CloseSocket()
         ' Release the socket.
         If RemoteEP IsNot Nothing And LocalIEP IsNot Nothing Then
-            If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("CloseSocket called with RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString, LogType.LOG_TYPE_INFO)
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MCastSocket.CloseSocket called with RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString, LogType.LOG_TYPE_INFO)
         Else
-            If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("CloseSocket called for mcastAddress = " & MymcastAddress.ToString, LogType.LOG_TYPE_INFO)
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MCastSocket.CloseSocket called for mcastAddress = " & MymcastAddress.ToString, LogType.LOG_TYPE_INFO)
         End If
 
         If MySocket Is Nothing Then Exit Sub
@@ -90,36 +101,36 @@ Public Class MCastSocket
             receiveDone.Set()
         Catch ex As Exception
             If RemoteEP IsNot Nothing And LocalIEP IsNot Nothing Then
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in CloseSocket setting ReceiveDone for RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.CloseSocket setting ReceiveDone for RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Else
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in CloseSocket setting ReceiveDone for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.CloseSocket setting ReceiveDone for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             End If
         End Try
         Try
             Mystate.workSocket.Shutdown(SocketShutdown.Both)
         Catch ex As Exception
             If RemoteEP IsNot Nothing And LocalIEP IsNot Nothing Then
-                If UPnPDebuglevel > DebugLevel.dlEvents Then Log("Error in CloseSocket shutting down the worksocketin MyState for RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlEvents Then Log("Error in MCastSocket.CloseSocket shutting down the worksocketin MyState for RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Else
-                If UPnPDebuglevel > DebugLevel.dlEvents Then Log("Error in CloseSocket shutting down the worksocket in MyState for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlEvents Then Log("Error in MCastSocket.CloseSocket shutting down the worksocket in MyState for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             End If
         End Try
         Try
             MySocket.Shutdown(SocketShutdown.Both)
         Catch ex As Exception
             If RemoteEP IsNot Nothing And LocalIEP IsNot Nothing Then
-                If UPnPDebuglevel > DebugLevel.dlEvents Then Log("Error in CloseSocket shutting down the worksocket for RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlEvents Then Log("Error in MCastSocket.CloseSocket shutting down the worksocket for RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Else
-                If UPnPDebuglevel > DebugLevel.dlEvents Then Log("Error in CloseSocket shutting down the worksocket for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlEvents Then Log("Error in MCastSocket.CloseSocket shutting down the worksocket for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             End If
         End Try
         Try
             MySocket.Close()
         Catch ex As Exception
             If RemoteEP IsNot Nothing And LocalIEP IsNot Nothing Then
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in CloseSocket for RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.CloseSocket for RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Else
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in CloseSocket for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.CloseSocket for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             End If
         End Try
         'Try   ' removed v .19 Why would I want to event something that was closed on demand
@@ -136,11 +147,11 @@ Public Class MCastSocket
         Try
             client.EndConnect(ar)
             MySocketIsClosed = False
-            If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("ConnectCallback connected a socket to " & client.RemoteEndPoint.ToString(), LogType.LOG_TYPE_INFO)
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MCastSocket.ConnectCallback connected a socket to " & client.RemoteEndPoint.ToString(), LogType.LOG_TYPE_INFO)
             connectDone.Set()
             RaiseEvent Connection(True)
         Catch ex As Exception
-            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in ConnectCallback calling EndConnect for mcastAddress = " & MymcastAddress.ToString & " with Error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.ConnectCallback calling EndConnect for mcastAddress = " & MymcastAddress.ToString & " with Error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
             RaiseEvent Connection(False)
         End Try
     End Sub
@@ -152,50 +163,51 @@ Public Class MCastSocket
 
     Protected Overridable Sub OnReceive(e As String, ReceiveEp As System.Net.EndPoint)
         Try
-            ' If UPnPDebuglevel > DebugLevel.dlOff Then  Log("OnReceive called for mcastAddress = " & MymcastAddress.ToString & " with Data = " & e, LogType.LOG_TYPE_INFO, LogColorNavy) 
+            ' If UPnPDebuglevel > DebugLevel.dlOff Then  Log("MCastSocket.OnReceive called for mcastAddress = " & MymcastAddress.ToString & " with Data = " & e, LogType.LOG_TYPE_INFO, LogColorNavy) 
             RaiseEvent DataReceived(Me, e, ReceiveEp)
         Catch ex As Exception
-            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in OnReceive for mcastAddress = " & MymcastAddress.ToString & " with Error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.OnReceive for mcastAddress = " & MymcastAddress.ToString & " with Error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Sub
 
     Public Function Receive() As Boolean
         Receive = False
         If MySocket Is Nothing Then
-            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in Receive for mcastAddress = " & MymcastAddress.ToString & ". No Socket", LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.Receive for mcastAddress = " & MymcastAddress.ToString & ". No Socket", LogType.LOG_TYPE_ERROR)
             Exit Function
         End If
         Try
             receiveDone.Reset()
-            Mystate = New StateObject
-            Mystate.workSocket = MySocket
+            Mystate = New StateObject With {
+                .workSocket = MySocket
+            }
             MyIAsyncResult = MySocket.BeginReceiveFrom(Mystate.buffer, 0, StateObject.BufferSize, SocketFlags.None, ReceiveEP, New AsyncCallback(AddressOf ReceiveCallback), Mystate)
             ' If UPnPDebuglevel > DebugLevel.dlOff Then  Log("Receive called for mcastAddress = " & MymcastAddress.ToString & " and state = " & MyIAsyncResult.ToString, LogType.LOG_TYPE_INFO, LogColorNavy) 
             Receive = True
         Catch ex As Exception
-            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in Receive for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.Receive for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Function
 
     Private Sub ReceiveCallback(ByVal ar As IAsyncResult)
-        If UPnPDebuglevel > DebugLevel.dlEvents Then Log("ReceiveCallback called for mcastAddress = " & MymcastAddress.ToString & ", LocalIEP = " & LocalIEP.Address.ToString, LogType.LOG_TYPE_INFO, LogColorNavy)
+        If upnpDebuglevel > DebugLevel.dlEvents Then Log("MCastSocket.ReceiveCallback called for mcastAddress = " & MymcastAddress.ToString & ", LocalIEP = " & LocalIEP.Address.ToString, LogType.LOG_TYPE_INFO, LogColorNavy)
         ' Retrieve the state object and the client socket 
         ' from the asynchronous state object.
         Try
             If MySocketIsClosed Then
                 receiveDone.Set()
                 If RemoteEP IsNot Nothing And LocalIEP IsNot Nothing Then
-                    If UPnPDebuglevel > DebugLevel.dlOff Then Log("ReceiveCallback for RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & " has a closed Socket", LogType.LOG_TYPE_WARNING)
+                    If upnpDebuglevel > DebugLevel.dlOff Then Log("MCastSocket.ReceiveCallback for RemoteEP = " & RemoteEP.Address.ToString & " and RemoteEP.port = " & RemoteEP.Port.ToString & " and LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & " has a closed Socket", LogType.LOG_TYPE_WARNING)
                 Else
-                    If UPnPDebuglevel > DebugLevel.dlOff Then Log("ReceiveCallback for mcastAddress = " & MymcastAddress.ToString & " has a closed Socket", LogType.LOG_TYPE_WARNING)
+                    If upnpDebuglevel > DebugLevel.dlOff Then Log("MCastSocket.ReceiveCallback for mcastAddress = " & MymcastAddress.ToString & " has a closed Socket", LogType.LOG_TYPE_WARNING)
                 End If
                 Exit Sub
             End If
         Catch ex As Exception
             If RemoteEP IsNot Nothing And LocalIEP IsNot Nothing Then
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in ReceiveCallback for mcastAddress = " & MymcastAddress.ToString & ", RemoteEP = " & RemoteEP.Address.ToString & ", RemoteEP.port = " & RemoteEP.Port.ToString & ", LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & "; closing socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.ReceiveCallback for mcastAddress = " & MymcastAddress.ToString & ", RemoteEP = " & RemoteEP.Address.ToString & ", RemoteEP.port = " & RemoteEP.Port.ToString & ", LocalIEP = " & LocalIEP.Address.ToString & " and LocalIEP.Port = " & LocalIEP.Port.ToString & "; closing socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Else
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in ReceiveCallback for mcastAddress = " & MymcastAddress.ToString & " closing socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.ReceiveCallback for mcastAddress = " & MymcastAddress.ToString & " closing socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             End If
             'Try ' removed in v19 if the socket is closed why would I want to event again
             'RaiseEvent MCastSocketClosed(Me)
@@ -210,36 +222,37 @@ Public Class MCastSocket
             Try
                 bytesRead = client.EndReceiveFrom(ar, ReceiveEP)
             Catch ex As Exception
-                If UPnPDebuglevel > DebugLevel.dlEvents Then
+                If upnpDebuglevel > DebugLevel.dlEvents Then
                     If RemoteEP IsNot Nothing And LocalIEP IsNot Nothing Then
-                        Log("Error in ReceiveCallback2 for mcastAddress = " & MymcastAddress.ToString & ", RemoteEP = " & RemoteEP.Address.ToString & ", RemoteEP.port = " & RemoteEP.Port.ToString & ", LocalIEP = " & LocalIEP.Address.ToString & ", LocalIEP.Port = " & LocalIEP.Port.ToString & " and Bytes read = " & bytesRead.ToString & "; reading bytes with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                        Log("Error in MCastSocket.ReceiveCallback2 for mcastAddress = " & MymcastAddress.ToString & ", RemoteEP = " & RemoteEP.Address.ToString & ", RemoteEP.port = " & RemoteEP.Port.ToString & ", LocalIEP = " & LocalIEP.Address.ToString & ", LocalIEP.Port = " & LocalIEP.Port.ToString & " and Bytes read = " & bytesRead.ToString & "; reading bytes with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                     Else
-                        Log("Error in ReceiveCallback2 for mcastAddress = " & MymcastAddress.ToString & " reading bytes with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                        Log("Error in MCastSocket.ReceiveCallback2 for mcastAddress = " & MymcastAddress.ToString & " reading bytes with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                     End If
                 End If
             End Try
 
             If bytesRead > StateObject.BufferSize Then
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in ReceiveCallback4 for mcastAddress = " & MymcastAddress.ToString & ", RemoteEP = " & RemoteEP.Address.ToString & ", RemoteEP.port = " & RemoteEP.Port.ToString & ", LocalIEP = " & LocalIEP.Address.ToString & ", LocalIEP.Port = " & LocalIEP.Port.ToString & " and Bytes read = " & bytesRead.ToString & "; reading TOO MANY bytes", LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.ReceiveCallback4 for mcastAddress = " & MymcastAddress.ToString & ", RemoteEP = " & RemoteEP.Address.ToString & ", RemoteEP.port = " & RemoteEP.Port.ToString & ", LocalIEP = " & LocalIEP.Address.ToString & ", LocalIEP.Port = " & LocalIEP.Port.ToString & " and Bytes read = " & bytesRead.ToString & "; reading TOO MANY bytes", LogType.LOG_TYPE_ERROR)
             End If
 
             If bytesRead > 0 Then
                 ' There might be more data, so store the data received so far.
-                If UPnPDebuglevel > DebugLevel.dlEvents Then Log("ReceiveCallback received data = " & Encoding.ASCII.GetString(state.buffer, 0, bytesRead), LogType.LOG_TYPE_INFO, LogColorNavy)
+                receivedByteCount += bytesRead
+                If upnpDebuglevel > DebugLevel.dlEvents Then Log("MCastSocket.ReceiveCallback received data = " & Encoding.ASCII.GetString(state.buffer, 0, bytesRead), LogType.LOG_TYPE_INFO, LogColorNavy)
                 OnReceive(Encoding.UTF8.GetString(state.buffer, 0, bytesRead), ReceiveEP)
             Else
                 ' All the data has arrived; put it in response.
                 ' Signal that all bytes have been received.
-                If UPnPDebuglevel > DebugLevel.dlEvents Then Log("ReceiveCallback for mcastAddress = " & MymcastAddress.ToString & " received all data", LogType.LOG_TYPE_WARNING, LogColorNavy)
+                If upnpDebuglevel > DebugLevel.dlEvents Then Log("MCastSocket.ReceiveCallback for mcastAddress = " & MymcastAddress.ToString & " received all data", LogType.LOG_TYPE_WARNING, LogColorNavy)
                 receiveDone.Set()
             End If
             Try
                 MyIAsyncResult = client.BeginReceiveFrom(state.buffer, 0, StateObject.BufferSize, SocketFlags.None, ReceiveEP, New AsyncCallback(AddressOf ReceiveCallback), state)
             Catch ex As Exception
                 If RemoteEP IsNot Nothing And LocalIEP IsNot Nothing Then
-                    If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in ReceiveCallback3 for mcastAddress = " & MymcastAddress.ToString & ", RemoteEP = " & RemoteEP.Address.ToString & ", RemoteEP.port = " & RemoteEP.Port.ToString & ", LocalIEP = " & LocalIEP.Address.ToString & ", LocalIEP.Port = " & LocalIEP.Port.ToString & " and Bytes read = " & bytesRead.ToString & "; start receiving with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                    If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.ReceiveCallback3 for mcastAddress = " & MymcastAddress.ToString & ", RemoteEP = " & RemoteEP.Address.ToString & ", RemoteEP.port = " & RemoteEP.Port.ToString & ", LocalIEP = " & LocalIEP.Address.ToString & ", LocalIEP.Port = " & LocalIEP.Port.ToString & " and Bytes read = " & bytesRead.ToString & "; start receiving with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                 Else
-                    If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in ReceiveCallback3 for mcastAddress = " & MymcastAddress.ToString & " start receiving with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                    If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.ReceiveCallback3 for mcastAddress = " & MymcastAddress.ToString & " start receiving with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                 End If
                 Try
                     RaiseEvent MCastSocketClosed(Me) ' from testing, this appears to be a valid case
@@ -248,9 +261,9 @@ Public Class MCastSocket
             End Try
         Catch ex As Exception
             If RemoteEP IsNot Nothing And LocalIEP IsNot Nothing Then
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in ReceiveCallback1 for mcastAddress = " & MymcastAddress.ToString & ", RemoteEP = " & RemoteEP.Address.ToString & ", RemoteEP.port = " & RemoteEP.Port.ToString & ", LocalIEP = " & LocalIEP.Address.ToString & ", LocalIEP.Port = " & LocalIEP.Port.ToString & " and Bytes read = " & bytesRead.ToString & "; closing socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.ReceiveCallback1 for mcastAddress = " & MymcastAddress.ToString & ", RemoteEP = " & RemoteEP.Address.ToString & ", RemoteEP.port = " & RemoteEP.Port.ToString & ", LocalIEP = " & LocalIEP.Address.ToString & ", LocalIEP.Port = " & LocalIEP.Port.ToString & " and Bytes read = " & bytesRead.ToString & "; closing socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Else
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in ReceiveCallback1 for mcastAddress = " & MymcastAddress.ToString & " closing socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.ReceiveCallback1 for mcastAddress = " & MymcastAddress.ToString & " closing socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             End If
             Try
                 RaiseEvent MCastSocketClosed(Me) ' as of v19, this probably will never happen as all actions/exceptions above are caught
@@ -261,25 +274,25 @@ Public Class MCastSocket
 
     Public Function Send(ByVal data As String) As Boolean
         ' Convert the string data to byte data using ASCII encoding.
-        'If g_bDebug Then log( "Send called")
+        'If piDebuglevel > DebugLevel.dlErrorsOnly Then log( "Send called")
         Send = False
         Try
             If MySocket Is Nothing Then
                 sendDone.Set()
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in Send for mcastAddress = " & MymcastAddress.ToString & ". No Socket", LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.Send for mcastAddress = " & MymcastAddress.ToString & ". No Socket", LogType.LOG_TYPE_ERROR)
                 Exit Function
             End If
         Catch ex As Exception
-            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in Send calling SendDone for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.Send calling SendDone for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         Try
             If MySocketIsClosed Then
                 sendDone.Set()
-                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in Send for mcastAddress = " & MymcastAddress.ToString & ". Socket is closed", LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.Send for mcastAddress = " & MymcastAddress.ToString & ". Socket is closed", LogType.LOG_TYPE_ERROR)
                 Exit Function
             End If
         Catch ex As Exception
-            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in Send for mcastAddress = " & MymcastAddress.ToString & " calling SendDone with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.Send for mcastAddress = " & MymcastAddress.ToString & " calling SendDone with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             'Try ' removed in v19, the socket is closed why event more
             'RaiseEvent MCastSocketClosed(Me)
             'Catch ex1 As Exception
@@ -291,12 +304,12 @@ Public Class MCastSocket
         Try
             'MySocket.BeginSend(byteData, 0, byteData.Length, SocketFlags.None, New AsyncCallback(AddressOf SendCallback), MySocket)
             Dim endPoint As IPEndPoint
-            EndPoint = New IPEndPoint(mcastAddress, mcastPort)
+            endPoint = New IPEndPoint(mcastAddress, mcastPort)
             ' mcastSocket.SendTo(ASCIIEncoding.ASCII.GetBytes(message), endPoint)
             MySocket.BeginSendTo(byteData, 0, byteData.Length, SocketFlags.None, endPoint, New AsyncCallback(AddressOf SendCallback), MySocket)
             Send = True
         Catch ex As Exception
-            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in Send for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.Send for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Try
                 RaiseEvent MCastSocketClosed(Me)
             Catch ex1 As Exception
@@ -314,11 +327,11 @@ Public Class MCastSocket
             Dim client As Socket = CType(ar.AsyncState, Socket)
             ' Complete sending the data to the remote device.
             Dim bytesSent As Integer = client.EndSend(ar)
-            If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("SendCallback has sent " & bytesSent & " bytes to server.", LogType.LOG_TYPE_WARNING)
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MCastSocket.SendCallback has sent " & bytesSent & " bytes to server.", LogType.LOG_TYPE_WARNING)
             ' Signal that all bytes have been sent.
             sendDone.Set()
         Catch ex As Exception
-            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in SendCallback for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MCastSocket.SendCallback for mcastAddress = " & MymcastAddress.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Try
                 RaiseEvent MCastSocketClosed(Me)
             Catch ex1 As Exception
@@ -331,7 +344,7 @@ Public Class MCastSocket
         MymcastAddress = InputAddress
         mcastAddress = IPAddress.Parse(InputAddress)
         mcastPort = InputPort
-        If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("MCastSocket.new was called with MCastAddress = " & InputAddress & " and MCastPort = " & InputPort, LogType.LOG_TYPE_INFO)
+        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MCastSocket.new was called with MCastAddress = " & InputAddress & " and MCastPort = " & InputPort, LogType.LOG_TYPE_INFO)
     End Sub
 
 End Class

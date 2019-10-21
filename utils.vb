@@ -1,8 +1,14 @@
 ﻿Imports System.IO
 Imports System.Runtime.Serialization.Formatters
-Imports HomeSeerAPI
 Imports System.Web.Script.Serialization
+Imports System.Net
 
+#If HS3 = "True" Then
+Imports HomeSeerAPI
+#Else
+Imports HomeSeer.PluginSdk
+Imports HomeSeer.PluginSdk.Devices
+#End If
 
 Module util
 
@@ -55,24 +61,24 @@ Module util
 
 
 
-    Sub PEDAdd(ByRef PED As clsPlugExtraData, ByVal PEDName As String, ByVal PEDValue As Object)
-        Dim ByteObject() As Byte = Nothing
-        If PED Is Nothing Then PED = New clsPlugExtraData
-        SerializeObject(PEDValue, ByteObject)
-        If Not PED.AddNamed(PEDName, ByteObject) Then
-            PED.RemoveNamed(PEDName)
-            PED.AddNamed(PEDName, ByteObject)
-        End If
-    End Sub
+    'Sub PEDAdd(ByRef PED As clsPlugExtraData, ByVal PEDName As String, ByVal PEDValue As Object)
+    'Dim ByteObject() As Byte = Nothing
+    'If PED Is Nothing Then PED = New clsPlugExtraData
+    '   SerializeObject(PEDValue, ByteObject)
+    'If Not PED.AddNamed(PEDName, ByteObject) Then
+    '       PED.RemoveNamed(PEDName)
+    '      PED.AddNamed(PEDName, ByteObject)
+    'End If
+    'End Sub
 
-    Function PEDGet(ByRef PED As clsPlugExtraData, ByVal PEDName As String) As Object
-        Dim ByteObject() As Byte
-        Dim ReturnValue As New Object
-        ByteObject = PED.GetNamed(PEDName)
-        If ByteObject Is Nothing Then Return Nothing
-        DeSerializeObject(ByteObject, ReturnValue)
-        Return ReturnValue
-    End Function
+    'Function PEDGet(ByRef PED As clsPlugExtraData, ByVal PEDName As String) As Object
+    'Dim ByteObject() As Byte
+    'Dim ReturnValue As New Object
+    '   ByteObject = PED.GetNamed(PEDName)
+    'If ByteObject Is Nothing Then Return Nothing
+    '   DeSerializeObject(ByteObject, ReturnValue)
+    'Return ReturnValue
+    'End Function
 
     Public Function SerializeObject(ByRef ObjIn As Object, ByRef bteOut() As Byte) As Boolean
         If ObjIn Is Nothing Then Return False
@@ -141,53 +147,9 @@ Module util
         LOG_TYPE_WARNING = 2
     End Enum
 
-    Public Sub Log(ByVal msg As String, ByVal logType As LogType, Optional ByVal MsgColor As String = "", Optional ErrorCode As Integer = 0)
-        Try
-            If msg Is Nothing Then msg = ""
-            If Not [Enum].IsDefined(GetType(LogType), logType) Then
-                logType = util.LogType.LOG_TYPE_ERROR
-            End If
-            If Not ImRunningOnLinux Then Console.WriteLine(DateAndTime.Now.ToString & " : " & msg)
-            Select Case logType
-                Case logType.LOG_TYPE_ERROR
-                    If MsgColor <> "" Then
-                        If Not gLogErrorsOnly Then hs.WriteLogDetail(ShortIfaceName & " Error", msg, MsgColor, "1", "UPnP", ErrorCode)
-                    Else
-                        hs.WriteLog(ShortIfaceName & " Error", msg)
-                    End If
-                Case logType.LOG_TYPE_WARNING
-                    If MsgColor <> "" Then
-                        If Not gLogErrorsOnly Then hs.WriteLogDetail(ShortIfaceName & " Warning", msg, MsgColor, "0", "UPnP", ErrorCode)
-                    Else
-                        If Not gLogErrorsOnly Then hs.WriteLog(ShortIfaceName & " Warning", msg)
-                    End If
-                Case logType.LOG_TYPE_INFO
-                    If MsgColor <> "" Then
-                        If Not gLogErrorsOnly Then hs.WriteLogDetail(ShortIfaceName, msg, MsgColor, "0", "UPnP", ErrorCode)
-                    Else
-                        If Not gLogErrorsOnly Then hs.WriteLog(ShortIfaceName, msg)
-                    End If
-            End Select
-        Catch ex As Exception
-            If Not ImRunningOnLinux Then Console.WriteLine("Exception in LOG of " & IFACE_NAME & ": " & ex.Message, logType.LOG_TYPE_ERROR)
-        End Try
-        Try
-            If MyLogFileName <> "" And gLogToDisk Then
-                If LogFileStreamWriter IsNot Nothing Then
-                    LogFileStreamWriter.WriteLine(DateAndTime.Now.ToString & " : " & msg)
-                End If
-            End If
-        Catch ex As Exception
-            LogFileStreamWriter = Nothing
-            MyLogFileName = ""
-            If Not ImRunningOnLinux Then Console.WriteLine(DateAndTime.Now.ToString & " : " & " Exception in LOG with Error = " & ex.Message, logType.LOG_TYPE_ERROR)
-            hs.WriteLog(ShortIfaceName & " Error", " Exception in LOG with Error = " & ex.Message)
-        End Try
-    End Sub
-
     Public Function OpenLogFile(LogFileName As String) As Boolean
         OpenLogFile = False
-        If g_bDebug Then Log("OpenLogFile called with LogFileName = " & LogFileName, LogType.LOG_TYPE_INFO)
+        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("OpenLogFile called with LogFileName = " & LogFileName, LogType.LOG_TYPE_INFO)
         If LogFileStreamWriter IsNot Nothing Then
             CloseLogFile()
         End If
@@ -211,29 +173,73 @@ Module util
         Catch ex As Exception
             LogFileStreamWriter = Nothing
             MyLogFileName = ""
-            If g_bDebug Then Log("Error in OpenLogFile with Error = " & ex.Message & " and DiskFileName = " & LogFileName, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in OpenLogFile with Error = " & ex.Message & " and DiskFileName = " & LogFileName, LogType.LOG_TYPE_ERROR)
         End Try
     End Function
 
     Public Sub CloseLogFile()
-        If g_bDebug Then Log("CloseLogFile called for DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_INFO)
+        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CloseLogFile called for DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_INFO)
         If LogFileStreamWriter IsNot Nothing Then
             Try
                 LogFileStreamWriter.Flush()
                 LogFileStreamWriter.Close()
             Catch ex As Exception
-                If g_bDebug Then Log("Error closing debug disk Log with Error = " & ex.Message & " and DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_ERROR)
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error closing debug disk Log with Error = " & ex.Message & " and DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_ERROR)
             End Try
             Try
                 LogFileStreamWriter.Dispose()
             Catch ex As Exception
-                If g_bDebug Then Log("Error disposing debug disk Log with Error = " & ex.Message & " and DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_ERROR)
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error disposing debug disk Log with Error = " & ex.Message & " and DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_ERROR)
             End Try
             LogFileStreamWriter = Nothing
         End If
         MyLogFileName = ""
     End Sub
 
+#If HS3 = "True" Then
+        Public Sub Log(ByVal msg As String, ByVal logType As LogType, Optional ByVal MsgColor As String = "", Optional ErrorCode As Integer = 0)
+        Try
+            If msg Is Nothing Then msg = ""
+            If Not [Enum].IsDefined(GetType(LogType), logType) Then
+                logType = util.LogType.LOG_TYPE_ERROR
+            End If
+            If Not ImRunningOnLinux Then Console.WriteLine(DateAndTime.Now.ToString & " : " & msg)
+            Select Case logType
+                Case LogType.LOG_TYPE_ERROR
+                    If MsgColor <> "" Then
+                        hs.WriteLogDetail(ShortIfaceName & " Error", msg, MsgColor, "1", "UPnP", ErrorCode)
+                    Else
+                        hs.WriteLog(ShortIfaceName & " Error", msg)
+                    End If
+                Case LogType.LOG_TYPE_WARNING
+                    If MsgColor <> "" Then
+                        hs.WriteLogDetail(ShortIfaceName & " Warning", msg, MsgColor, "0", "UPnP", ErrorCode)
+                    Else
+                        hs.WriteLog(ShortIfaceName & " Warning", msg)
+                    End If
+                Case LogType.LOG_TYPE_INFO
+                    If MsgColor <> "" Then
+                        hs.WriteLogDetail(ShortIfaceName, msg, MsgColor, "0", "UPnP", ErrorCode)
+                    Else
+                        hs.WriteLog(ShortIfaceName, msg)
+                    End If
+            End Select
+        Catch ex As Exception
+            If Not ImRunningOnLinux Then Console.WriteLine("Exception in LOG of " & IFACE_NAME & ": " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+        Try
+            If MyLogFileName <> "" And gLogToDisk Then
+                If LogFileStreamWriter IsNot Nothing Then
+                    LogFileStreamWriter.WriteLine(DateAndTime.Now.ToString & " : " & msg)
+                End If
+            End If
+        Catch ex As Exception
+            LogFileStreamWriter = Nothing
+            MyLogFileName = ""
+            If Not ImRunningOnLinux Then Console.WriteLine(DateAndTime.Now.ToString & " : " & " Exception in LOG with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            hs.WriteLog(ShortIfaceName & " Error", " Exception in LOG with Error = " & ex.Message)
+        End Try
+    End Sub
     Public Function GetStringIniFile(ByVal Section As String, ByVal Key As String, ByVal DefaultVal As String, Optional FileName As String = "") As String
         GetStringIniFile = ""
         If FileName = "" Then FileName = MyINIFile
@@ -301,7 +307,7 @@ Module util
         If FileName = "" Then FileName = MyINIFile
         Try
             hs.SaveINISetting(Section, EncodeINIKey(Key), Nothing, MyINIFile)
-            If SuperDebug Then Log("DeleteEntryIniFile called with section = " & Section & " and Key = " & EncodeINIKey(Key), LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlEvents Then Log("DeleteEntryIniFile called with section = " & Section & " and Key = " & EncodeINIKey(Key), LogType.LOG_TYPE_INFO)
         Catch ex As Exception
             Log("Error in DeleteEntryIniFile reading " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
@@ -313,10 +319,10 @@ Module util
         Try
             Dim ReturnStrings As String() = hs.GetINISectionEx(Section, FileName)
             If ReturnStrings Is Nothing Then Exit Function
-            If SuperDebug Then Log("GetIniSection called with section = " & Section & ", FileName = " & FileName & " and # Result = " & UBound(ReturnStrings, 1).ToString, LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlEvents Then Log("GetIniSection called with section = " & Section & ", FileName = " & FileName & " and # Result = " & UBound(ReturnStrings, 1).ToString, LogType.LOG_TYPE_INFO)
             Dim KeyValues As New Dictionary(Of String, String)()
             For Each Entry In ReturnStrings
-                'If g_bDebug Then Log("GetIniSection called with section = " & Section & " found entry = " & Entry.ToString, LogType.LOG_TYPE_INFO)
+                'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetIniSection called with section = " & Section & " found entry = " & Entry.ToString, LogType.LOG_TYPE_INFO)
                 Dim Values As String() = Split(Entry, "=")
                 If Not Entry Is Nothing And Entry <> "" Then
                     If UBound(Values, 1) > 0 Then
@@ -335,12 +341,323 @@ Module util
     Public Sub DeleteIniSection(ByVal Section As String, Optional FileName As String = "")
         If FileName = "" Then FileName = MyINIFile
         Try
-            If g_bDebug Then Log("DeleteIniSection called with section = " & Section & " and FileName = " & FileName, LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("DeleteIniSection called with section = " & Section & " and FileName = " & FileName, LogType.LOG_TYPE_INFO)
             hs.ClearINISection(Section, FileName)
         Catch ex As Exception
             Log("Error in DeleteIniSection deleting " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Sub
+
+#Else
+    Public Sub Log(ByVal msg As String, Optional ByVal logType As LogType = LogType.LOG_TYPE_INFO, Optional ByVal MsgColor As String = "", Optional ErrorCode As Integer = 0)
+        Try
+            If msg Is Nothing Then msg = ""
+            If Not [Enum].IsDefined(GetType(LogType), logType) Then
+                logType = util.LogType.LOG_TYPE_ERROR
+            End If
+            If Not ImRunningOnLinux Then Console.WriteLine(DateAndTime.Now.ToString & " : " & msg)
+            Select Case logType
+                Case LogType.LOG_TYPE_ERROR
+                    If MsgColor <> "" Then
+                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, msg, shortIfaceName, MsgColor)
+                        'If Not gLogErrorsOnly Then hs.WriteLogDetail(ShortIfaceName & " Error", msg, MsgColor, "1", "UPnP", ErrorCode)
+                    Else
+                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, msg, shortIfaceName)
+                        'hs.WriteLog(ShortIfaceName & " Error", msg)
+                    End If
+                Case LogType.LOG_TYPE_WARNING
+                    If MsgColor <> "" Then
+                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Warning, msg, shortIfaceName, MsgColor)
+                        'If Not gLogErrorsOnly Then hs.WriteLogDetail(ShortIfaceName & " Warning", msg, MsgColor, "0", "UPnP", ErrorCode)
+                    Else
+                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Warning, msg, shortIfaceName)
+                        'If Not gLogErrorsOnly Then hs.WriteLog(ShortIfaceName & " Warning", msg)
+                    End If
+                Case LogType.LOG_TYPE_INFO
+                    If MsgColor <> "" Then
+                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Info, msg, shortIfaceName, MsgColor)
+                        'If Not gLogErrorsOnly Then hs.WriteLogDetail(ShortIfaceName, msg, MsgColor, "0", "UPnP", ErrorCode)
+                    Else
+                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Info, msg, shortIfaceName)
+                        'If Not gLogErrorsOnly Then hs.WriteLog(ShortIfaceName, msg)
+                    End If
+            End Select
+        Catch ex As Exception
+            If Not ImRunningOnLinux Then Console.WriteLine("Exception in LOG of " & IFACE_NAME & ": " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+        Try
+            If MyLogFileName <> "" And gLogToDisk Then
+                If LogFileStreamWriter IsNot Nothing Then
+                    LogFileStreamWriter.WriteLine(DateAndTime.Now.ToString & " : " & msg)
+                End If
+            End If
+        Catch ex As Exception
+            LogFileStreamWriter = Nothing
+            MyLogFileName = ""
+            If Not ImRunningOnLinux Then Console.WriteLine(DateAndTime.Now.ToString & " : " & " Exception in LOG with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, " Exception in LOG with Error = " & ex.Message, shortIfaceName)
+            'hs.WriteLog(ShortIfaceName & " Error", " Exception in LOG with Error = " & ex.Message)
+        End Try
+    End Sub
+
+    Public Function GetStringIniFile(ByVal Section As String, ByVal Key As String, ByVal DefaultVal As String, Optional FileName As String = "") As String
+        GetStringIniFile = ""
+        If FileName = "" Then FileName = myINIFile
+        Try
+            GetStringIniFile = myHomeSeerSystem.GetINISetting(Section, EncodeINIKey(Key), DefaultVal, FileName)
+            'Log("GetStringIniFile called with section = " & Section & " and Key = " & Key & " read = " & GetStringIniFile, LogType.LOG_TYPE_INFO)
+        Catch ex As Exception
+            Log("Error in GetStringIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Function
+
+    Public Function GetIntegerIniFile(ByVal Section As String, ByVal Key As String, ByVal DefaultVal As Integer, Optional FileName As String = "") As Integer
+        GetIntegerIniFile = 0
+        If FileName = "" Then FileName = myINIFile
+        Try
+            GetIntegerIniFile = myHomeSeerSystem.GetINISetting(Section, EncodeINIKey(Key), DefaultVal, FileName)
+            'Log("GetIntegerIniFile called with section = " & Section & " and Key = " & Key & " read = " & GetIntegerIniFile.ToString, LogType.LOG_TYPE_INFO)
+        Catch ex As Exception
+            Log("Error in GetIntegerIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Function
+
+    Public Function GetBooleanIniFile(ByVal Section As String, ByVal Key As String, ByVal DefaultVal As Boolean, Optional FileName As String = "") As Boolean
+        GetBooleanIniFile = False
+        If FileName = "" Then FileName = myINIFile
+        Try
+            GetBooleanIniFile = myHomeSeerSystem.GetINISetting(Section, EncodeINIKey(Key), DefaultVal, FileName)
+            'Log("GetBooleanIniFile called with section = " & Section & " and Key = " & Key & " read = " & GetBooleanIniFile.ToString, LogType.LOG_TYPE_INFO)
+        Catch ex As Exception
+            Log("Error in GetBooleanIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Function
+
+    Public Sub WriteStringIniFile(ByVal Section As String, ByVal Key As String, ByVal Value As String, Optional FileName As String = "")
+        If FileName = "" Then FileName = myINIFile
+        Try
+            myHomeSeerSystem.SaveINISetting(Section, EncodeINIKey(Key), Value, FileName)
+            'Log("WriteStringIniFile called with section = " & Section & " and Key = " & Key & " Value = " & Value.ToString, LogType.LOG_TYPE_INFO)
+        Catch ex As Exception
+            Log("Error in WriteStringIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Value = " & Value.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Public Sub WriteIntegerIniFile(ByVal Section As String, ByVal Key As String, ByVal Value As Integer, Optional FileName As String = "")
+        If FileName = "" Then FileName = myINIFile
+        Try
+            myHomeSeerSystem.SaveINISetting(Section, EncodeINIKey(Key), Value, FileName)
+            'Log("WriteIntegerIniFile called with section = " & Section & " and Key = " & Key & " Value = " & Value.ToString, LogType.LOG_TYPE_INFO)
+        Catch ex As Exception
+            Log("Error in WriteIntegerIniFile writing section  " & Section & " and Key = " & EncodeINIKey(Key) & " and Value = " & Value.ToString & " with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Public Sub WriteBooleanIniFile(ByVal Section As String, ByVal Key As String, ByVal Value As Boolean, Optional FileName As String = "")
+        If FileName = "" Then FileName = myINIFile
+        Try
+            myHomeSeerSystem.SaveINISetting(Section, EncodeINIKey(Key), Value, FileName)
+            'Log("WriteBooleanIniFile called with section = " & Section & " and Key = " & Key & " Value = " & Value.ToString, LogType.LOG_TYPE_INFO)
+        Catch ex As Exception
+            Log("Error in WriteBooleanIniFile writing section  " & Section & " and Key = " & EncodeINIKey(Key) & " and Value = " & Value.ToString & " with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Public Sub DeleteEntryIniFile(Section As String, Key As String, Optional FileName As String = "")
+        If FileName = "" Then FileName = myINIFile
+        Try
+            myHomeSeerSystem.SaveINISetting(Section, EncodeINIKey(Key), Nothing, myINIFile)
+            If piDebuglevel > DebugLevel.dlEvents Then Log("DeleteEntryIniFile called with section = " & Section & " and Key = " & EncodeINIKey(Key), LogType.LOG_TYPE_INFO)
+        Catch ex As Exception
+            Log("Error in DeleteEntryIniFile reading " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Public Function GetIniSection(ByVal Section As String, Optional FileName As String = "") As Dictionary(Of String, String)
+        GetIniSection = Nothing
+        If FileName = "" Then FileName = myINIFile
+        Try
+            Return myHomeSeerSystem.GetIniSection(Section, FileName)
+        Catch ex As Exception
+            Log("Error in GetIniSection reading " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Function
+
+    Public Sub DeleteIniSection(ByVal Section As String, Optional FileName As String = "")
+        If FileName = "" Then FileName = myINIFile
+        Try
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("DeleteIniSection called with section = " & Section & " and FileName = " & FileName, LogType.LOG_TYPE_INFO)
+            myHomeSeerSystem.ClearIniSection(Section, FileName)
+        Catch ex As Exception
+            Log("Error in DeleteIniSection deleting " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Public Sub SetFeatureValueByRef(FeatureRef As Integer, NewValue As Object, Optional Update As Boolean = False)
+        If piDebuglevel > DebugLevel.dlEvents Then Log("SetFeatureValueByRef called with Ref = " & FeatureRef.ToString & " and NewValue = " & NewValue.ToString, LogType.LOG_TYPE_INFO)
+        Try
+            'myHomeSeerSystem.UpdatePropertyByRef(FeatureRef, Devices.EProperty.Value, Convert.ToDouble(NewValue)) ' issue in v24
+            myHomeSeerSystem.UpdateFeatureValueByRef(FeatureRef, Convert.ToDouble(NewValue))
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in SetFeatureValueByRef called with Ref = " & FeatureRef.ToString & " and NewValue = " & NewValue.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Public Sub SetFeatureStringByRef(FeatureRef As Integer, NewValue As Object, Update As Boolean)
+        If piDebuglevel > DebugLevel.dlEvents Then Log("SetFeatureStringByRef called with Ref = " & FeatureRef.ToString & " and NewValue = " & NewValue.ToString, LogType.LOG_TYPE_INFO)
+        If FeatureRef = -1 Then Exit Sub
+        Try
+            'Dim df As Devices.HsFeature = myHomeSeerSystem.GetFeatureByRef(FeatureRef)
+            'Dim status As Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object) = New Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object)()
+            'status.Add(HomeSeer.PluginSdk.Devices.EProperty.Status, NewValue)
+            'myHomeSeerSystem.UpdateFeatureByRef(FeatureRef, status) ' issue in v.24
+            myHomeSeerSystem.UpdateFeatureValueStringByRef(FeatureRef, NewValue.ToString)
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in SetFeatureStringByRef called with Ref = " & FeatureRef.ToString & " and NewValue = " & NewValue.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Public Function GetPicture(ByVal url As String) As Image
+        ' Get the picture at a given URL.
+        Dim web_client As New WebClient With {
+            .UseDefaultCredentials = True                         ' added 5/2/2019
+            }
+        ' web_client.Credentials = CredentialCache.DefaultCredentials     ' added 5/2/2019
+        GetPicture = Nothing
+        Try
+            url = Trim(url)
+            If url = "" Then
+                Return Nothing
+                Exit Function
+            End If
+            If Not (url.ToLower().StartsWith("http://") Or url.ToLower().StartsWith("https://") Or url.ToLower().StartsWith("file:")) Then url = "http://" & url
+            Dim image_stream As New MemoryStream(web_client.DownloadData(url))
+            GetPicture = Image.FromStream(image_stream, True, True)
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetPicture called with url= " & url.ToString & " caused error: " & ex.Message, LogType.LOG_TYPE_ERROR)
+        Finally
+            web_client.Dispose()
+        End Try
+    End Function
+
+
+    Public Sub DumpInfoHSDevice(HSRef_ As Integer)
+        If HSRef_ <> -1 Then
+            Try
+                Dim dv As HsDevice = myHomeSeerSystem.GetDeviceByRef(HSRef_)
+                If dv IsNot Nothing Then
+                    Log("Device Name = " & dv.Name, LogType.LOG_TYPE_WARNING)
+                    Log("Device Ref = " & dv.Ref, LogType.LOG_TYPE_WARNING)
+                    Log("--Device Image = " & dv.Image, LogType.LOG_TYPE_WARNING)
+                    Log("--Device Interface = " & dv.Interface, LogType.LOG_TYPE_WARNING)
+                    Log("--Device IsValueInvalid = " & dv.IsValueInvalid, LogType.LOG_TYPE_WARNING)
+                    Log("--Device Relationship = " & dv.Relationship.ToString(), LogType.LOG_TYPE_WARNING)
+                    Log("--Device Status = " & dv.Status, LogType.LOG_TYPE_WARNING)
+                    Log("--Device Value = " & dv.Value.ToString(), LogType.LOG_TYPE_WARNING)
+                    Log("--Device TypeInfo.Type = " & dv.TypeInfo.Type.ToString(), LogType.LOG_TYPE_WARNING)
+                    Log("--Device TypeInfo.SubType = " & dv.TypeInfo.SubType.ToString(), LogType.LOG_TYPE_WARNING)
+                    Dim fvList As List(Of HsFeature) = dv.Features()
+                    Dim adList As HashSet(Of Integer) = dv.AssociatedDevices()
+                    If fvList IsNot Nothing AndAlso fvList.Count > 0 Then
+                        For Each fv As HsFeature In fvList
+                            Log("----Feature Name = " & fv.Name, LogType.LOG_TYPE_WARNING)
+                            Log("----Feature Ref = " & fv.Ref, LogType.LOG_TYPE_WARNING)
+                            Log("------Feature Image = " & fv.Image, LogType.LOG_TYPE_WARNING)
+                            Log("------Feature Interface = " & fv.Interface, LogType.LOG_TYPE_WARNING)
+                            Log("------Feature IsValueInvalid = " & fv.IsValueInvalid, LogType.LOG_TYPE_WARNING)
+                            Log("------Feature Relationship = " & fv.Relationship.ToString(), LogType.LOG_TYPE_WARNING)
+                            Log("------Feature Status = " & fv.Status, LogType.LOG_TYPE_WARNING)
+                            Log("------Feature Value = " & fv.Value.ToString(), LogType.LOG_TYPE_WARNING)
+                            Dim scList As Controls.StatusControlCollection = fv.StatusControls()
+                            Dim sgList As StatusGraphicCollection = fv.StatusGraphics()
+                            If scList IsNot Nothing AndAlso scList.Count > 0 Then
+                                Log("--------Status Control count = " & scList.Count.ToString(), LogType.LOG_TYPE_WARNING)
+                                'For Each sc As Controls.StatusControl In scList
+                                'Log("--------Status Control Name = " & sc.Name, LogType.LOG_TYPE_WARNING)
+                                'sc.Column
+                                'sc.ControlStates
+                                'sc.ControlType
+                                'sc.ControlUse
+                                'sc.IsRange
+                                'sc.Label
+                                'sc.Location
+                                'sc.Row
+                                'sc.TargetRange
+                                'sc.TargetValue
+                                'sc.Width
+                                'Next
+                            End If
+                            If sgList IsNot Nothing AndAlso sgList.Count > 0 Then
+                                Log("--------Status Graphics count = " & sgList.Count.ToString(), LogType.LOG_TYPE_WARNING)
+                                'For Each sg As StatusGraphic In sgList
+
+                                'Next
+                            End If
+                        Next
+                    End If
+                    If adList IsNot Nothing AndAlso adList.Count > 0 Then
+                        Log("----Associated devices count = " & adList.Count.ToString(), LogType.LOG_TYPE_WARNING)
+                        For Each featRef_ As Integer In adList
+                            Dim fv As HsFeature = myHomeSeerSystem.GetFeatureByRef(featRef_)
+                            If fv IsNot Nothing Then
+                                Log("----Feature Name = " & fv.Name, LogType.LOG_TYPE_WARNING)
+                                Log("----Feature Ref = " & fv.Ref, LogType.LOG_TYPE_WARNING)
+                                Log("------Feature Image = " & fv.Image, LogType.LOG_TYPE_WARNING)
+                                Log("------Feature Interface = " & fv.Interface, LogType.LOG_TYPE_WARNING)
+                                Log("------Feature IsValueInvalid = " & fv.IsValueInvalid, LogType.LOG_TYPE_WARNING)
+                                Log("------Feature Relationship = " & fv.Relationship.ToString(), LogType.LOG_TYPE_WARNING)
+                                Log("------Feature Status = " & fv.Status, LogType.LOG_TYPE_WARNING)
+                                Log("------Feature Value = " & fv.Value.ToString(), LogType.LOG_TYPE_WARNING)
+                                Log("------Feature TypeInfo.Type = " & fv.TypeInfo.Type.ToString(), LogType.LOG_TYPE_WARNING)
+                                Log("------Feature TypeInfo.SubType = " & fv.TypeInfo.SubType.ToString(), LogType.LOG_TYPE_WARNING)
+                                Dim scList As Controls.StatusControlCollection = fv.StatusControls()
+                                Dim sgList As StatusGraphicCollection = fv.StatusGraphics()
+                                If scList IsNot Nothing AndAlso scList.Count > 0 Then
+                                    Log("--------Status Control count = " & scList.Count.ToString(), LogType.LOG_TYPE_WARNING)
+                                    For Each sc As Controls.StatusControl In scList.Values
+                                        Log("--------Status Control Label = " & sc.Label, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Control Column = " & sc.Column, LogType.LOG_TYPE_WARNING)
+
+                                        Log("--------Status Control ControlType = " & sc.ControlType, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Control ControlUse = " & sc.ControlUse, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Control IsRange = " & sc.IsRange, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Control Location = " & sc.Location.ToString, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Control Row = " & sc.Row, LogType.LOG_TYPE_WARNING)
+                                        'Log("--------Status Control TargetRange = " & sc.TargetRange, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Control TargetValue = " & sc.TargetValue, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Control Width = " & sc.Width, LogType.LOG_TYPE_WARNING)
+                                        Dim ListCs As List(Of String) = sc.ControlStates
+                                        If ListCs IsNot Nothing AndAlso ListCs.Count > 0 Then
+                                            For Each scState As String In ListCs
+                                                Log("----------Status Control ControlStates = " & scState, LogType.LOG_TYPE_WARNING)
+                                            Next
+                                        End If
+                                    Next
+                                End If
+                                If sgList IsNot Nothing AndAlso sgList.Count > 0 Then
+                                    Log("--------Status Graphics count = " & sgList.Count.ToString(), LogType.LOG_TYPE_WARNING)
+                                    For Each sg As StatusGraphic In sgList.Values
+                                        Log("--------Status Graphics Graphic = " & sg.Graphic, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Graphics IsRange = " & sg.IsRange, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Graphics Label = " & sg.Label, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Graphics RangeMax = " & sg.RangeMax, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Graphics RangeMin = " & sg.RangeMin, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Graphics Value = " & sg.Value, LogType.LOG_TYPE_WARNING)
+                                        Log("--------Status Graphics GetType = " & sg.GetType.ToString, LogType.LOG_TYPE_WARNING)
+                                    Next
+                                End If
+                            End If
+                        Next
+                    End If
+                End If
+            Catch ex As Exception
+
+            End Try
+        End If
+
+
+    End Sub
+#End If
 
     Public Function EncodeURI(ByVal InString As String) As String
         EncodeURI = InString
@@ -351,41 +668,41 @@ Module util
         Try
             Do While InIndex < InString.Length
                 If InString(InIndex) = " " Then
-                    Outstring = Outstring + "%20"
+                    Outstring += "%20"
                 ElseIf InString(InIndex) = "!" Then
-                    Outstring = Outstring + "%21"
+                    Outstring += "%21"
                 ElseIf InString(InIndex) = """ Then" Then
-                    Outstring = Outstring + "%22"
+                    Outstring += "%22"
                 ElseIf InString(InIndex) = "#" Then
-                    Outstring = Outstring + "%23"
+                    Outstring += "%23"
                 ElseIf InString(InIndex) = "$" Then
-                    Outstring = Outstring + "%24"
+                    Outstring += "%24"
                 ElseIf InString(InIndex) = "%" Then
-                    Outstring = Outstring + "%25"
+                    Outstring += "%25"
                 ElseIf InString(InIndex) = "&" Then
-                    Outstring = Outstring + "%26"
+                    Outstring += "%26"
                 ElseIf InString(InIndex) = "'" Then
-                    Outstring = Outstring + "%27"
+                    Outstring += "%27"
                 ElseIf InString(InIndex) = "(" Then
-                    Outstring = Outstring + "%28"
+                    Outstring += "%28"
                 ElseIf InString(InIndex) = ")" Then
-                    Outstring = Outstring + "%29"
+                    Outstring += "%29"
                 ElseIf InString(InIndex) = "*" Then
-                    Outstring = Outstring + "%2A"
+                    Outstring += "%2A"
                 ElseIf InString(InIndex) = "+" Then
-                    Outstring = Outstring + "%2B"
+                    Outstring += "%2B"
                 ElseIf InString(InIndex) = "," Then
-                    Outstring = Outstring + "%2C"
+                    Outstring += "%2C"
                 ElseIf InString(InIndex) = "-" Then
-                    Outstring = Outstring + "%2D"
+                    Outstring += "%2D"
                 ElseIf InString(InIndex) = "." Then
-                    Outstring = Outstring + "%2E"
+                    Outstring += "%2E"
                 ElseIf InString(InIndex) = "/" Then
-                    Outstring = Outstring + "%2F"
+                    Outstring += "%2F"
                 Else
-                    Outstring = Outstring & InString(InIndex)
+                    Outstring &= InString(InIndex)
                 End If
-                InIndex = InIndex + 1
+                InIndex += 1
             Loop
         Catch ex As Exception
             Log("Error in EncodeURI. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -407,12 +724,12 @@ Module util
                     ' first check length
                     If InIndex + 2 <= InString.Length Then
                         ' now check whether next two characters are hex
-                        If ((InString(InIndex + 1) >= "0") And (InString(InIndex + 1) <= "9")) Or _
-                            ((InString(InIndex + 1) >= "A") And (InString(InIndex + 1) <= "F")) Or _
+                        If ((InString(InIndex + 1) >= "0") And (InString(InIndex + 1) <= "9")) Or
+                            ((InString(InIndex + 1) >= "A") And (InString(InIndex + 1) <= "F")) Or
                              ((InString(InIndex + 1) >= "a") And (InString(InIndex + 1) <= "f")) Then
                             ' now check the same for the second character
-                            If ((InString(InIndex + 2) >= "0") And (InString(InIndex + 2) <= "9")) Or _
-                                ((InString(InIndex + 2) >= "A") And (InString(InIndex + 2) <= "F")) Or _
+                            If ((InString(InIndex + 2) >= "0") And (InString(InIndex + 2) <= "9")) Or
+                                ((InString(InIndex + 2) >= "A") And (InString(InIndex + 2) <= "F")) Or
                                 ((InString(InIndex + 2) >= "a") And (InString(InIndex + 2) <= "f")) Then
                                 ' all checks passed now convert
                                 Value = 0
@@ -420,32 +737,32 @@ Module util
                                 Char1 = UCase(InString(InIndex + 1))
                                 Char2 = UCase(InString(InIndex + 2))
                                 If (Char1 >= "0") And (Char1 <= "9") Then
-                                    Value = Value + Val(Char1) * 16
+                                    Value += Val(Char1) * 16
                                 Else
                                     ' convert 
                                     Char1 = ChrW(AscW(Char1) - 17)
-                                    Value = Value + (Val(Char1) + 10) * 16
+                                    Value += (Val(Char1) + 10) * 16
                                 End If
                                 If (Char2 >= "0") And (Char2 <= "9") Then
-                                    Value = Value + Val(Char2)
+                                    Value += Val(Char2)
                                 Else
                                     ' convert 
                                     Char2 = ChrW(AscW(Char2) - 17)
-                                    Value = Value + (Val(Char2) + 10)
+                                    Value += (Val(Char2) + 10)
                                 End If
-                                Outstring = Outstring & ChrW(Value)
-                                InIndex = InIndex + 3
+                                Outstring &= ChrW(Value)
+                                InIndex += 3
                             Else
-                                Outstring = Outstring & InString(InIndex)
-                                InIndex = InIndex + 1
+                                Outstring &= InString(InIndex)
+                                InIndex += 1
                             End If
                         Else
-                            Outstring = Outstring & InString(InIndex)
-                            InIndex = InIndex + 1
+                            Outstring &= InString(InIndex)
+                            InIndex += 1
                         End If
                     Else
-                        Outstring = Outstring & InString(InIndex)
-                        InIndex = InIndex + 1
+                        Outstring &= InString(InIndex)
+                        InIndex += 1
                     End If
                     'ElseIf InString(InIndex) = "&" Then
                     '             string = string.replace(/&amp;/g, "&");  
@@ -454,15 +771,15 @@ Module util
                     '             string = string.replace(/&lt;/g, "<");  
                     '             string = string.replace(/&gt;/g, ">"); 
                 Else
-                    Outstring = Outstring & InString(InIndex)
-                    InIndex = InIndex + 1
+                    Outstring &= InString(InIndex)
+                    InIndex += 1
                 End If
             Loop
         Catch ex As Exception
             Log("Error in DecodeURI with URI = " & InString & " and Index= " & InIndex.ToString & " and Value = " & Value.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         DecodeURI = Outstring
-        'If g_bDebug Then log( "DecodeURI: In = " & InString & " out = " & Outstring)
+        'If piDebuglevel > DebugLevel.dlErrorsOnly Then log( "DecodeURI: In = " & InString & " out = " & Outstring)
     End Function
 
     Public Function EncodeINIKey(ByVal InString As String) As String
@@ -474,13 +791,13 @@ Module util
         Try
             Do While InIndex < InString.Length
                 If InString(InIndex) = "=" Then
-                    Outstring = Outstring + "%3D"
+                    Outstring += "%3D"
                 ElseIf InString(InIndex) = "%" Then
-                    Outstring = Outstring + "%25"
+                    Outstring += "%25"
                 Else
-                    Outstring = Outstring & InString(InIndex)
+                    Outstring &= InString(InIndex)
                 End If
-                InIndex = InIndex + 1
+                InIndex += 1
             Loop
         Catch ex As Exception
             Log("Error in EncodeINIKey. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -502,12 +819,12 @@ Module util
                     ' first check length
                     If InIndex + 2 <= InString.Length Then
                         ' now check whether next two characters are hex
-                        If ((InString(InIndex + 1) >= "0") And (InString(InIndex + 1) <= "9")) Or _
-                            ((InString(InIndex + 1) >= "A") And (InString(InIndex + 1) <= "F")) Or _
+                        If ((InString(InIndex + 1) >= "0") And (InString(InIndex + 1) <= "9")) Or
+                            ((InString(InIndex + 1) >= "A") And (InString(InIndex + 1) <= "F")) Or
                              ((InString(InIndex + 1) >= "a") And (InString(InIndex + 1) <= "f")) Then
                             ' now check the same for the second character
-                            If ((InString(InIndex + 2) >= "0") And (InString(InIndex + 2) <= "9")) Or _
-                                ((InString(InIndex + 2) >= "A") And (InString(InIndex + 2) <= "F")) Or _
+                            If ((InString(InIndex + 2) >= "0") And (InString(InIndex + 2) <= "9")) Or
+                                ((InString(InIndex + 2) >= "A") And (InString(InIndex + 2) <= "F")) Or
                                 ((InString(InIndex + 2) >= "a") And (InString(InIndex + 2) <= "f")) Then
                                 ' all checks passed now convert
                                 Value = 0
@@ -515,32 +832,32 @@ Module util
                                 Char1 = UCase(InString(InIndex + 1))
                                 Char2 = UCase(InString(InIndex + 2))
                                 If (Char1 >= "0") And (Char1 <= "9") Then
-                                    Value = Value + Val(Char1) * 16
+                                    Value += Val(Char1) * 16
                                 Else
                                     ' convert 
                                     Char1 = ChrW(AscW(Char1) - 17)
-                                    Value = Value + (Val(Char1) + 10) * 16
+                                    Value += (Val(Char1) + 10) * 16
                                 End If
                                 If (Char2 >= "0") And (Char2 <= "9") Then
-                                    Value = Value + Val(Char2)
+                                    Value += Val(Char2)
                                 Else
                                     ' convert 
                                     Char2 = ChrW(AscW(Char2) - 17)
-                                    Value = Value + (Val(Char2) + 10)
+                                    Value += (Val(Char2) + 10)
                                 End If
-                                Outstring = Outstring & ChrW(Value)
-                                InIndex = InIndex + 3
+                                Outstring &= ChrW(Value)
+                                InIndex += 3
                             Else
-                                Outstring = Outstring & InString(InIndex)
-                                InIndex = InIndex + 1
+                                Outstring &= InString(InIndex)
+                                InIndex += 1
                             End If
                         Else
-                            Outstring = Outstring & InString(InIndex)
-                            InIndex = InIndex + 1
+                            Outstring &= InString(InIndex)
+                            InIndex += 1
                         End If
                     Else
-                        Outstring = Outstring & InString(InIndex)
-                        InIndex = InIndex + 1
+                        Outstring &= InString(InIndex)
+                        InIndex += 1
                     End If
                     'ElseIf InString(InIndex) = "&" Then
                     '             string = string.replace(/&amp;/g, "&");  
@@ -549,19 +866,19 @@ Module util
                     '             string = string.replace(/&lt;/g, "<");  
                     '             string = string.replace(/&gt;/g, ">"); 
                 Else
-                    Outstring = Outstring & InString(InIndex)
-                    InIndex = InIndex + 1
+                    Outstring &= InString(InIndex)
+                    InIndex += 1
                 End If
             Loop
         Catch ex As Exception
             Log("Error in DecodeINIKey with URI = " & InString & " and Index= " & InIndex.ToString & " and Value = " & Value.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         DecodeINIKey = Outstring
-        'If g_bDebug Then log( "DecodeURI: In = " & InString & " out = " & Outstring)
+        'If piDebuglevel > DebugLevel.dlErrorsOnly Then log( "DecodeURI: In = " & InString & " out = " & Outstring)
     End Function
 
     Public Function DeriveIPAddress(inString As String, NextChar As String) As String
-        If SuperDebug Then Log("DeriveIPAddress called for and inString = " & inString & " and NextChar = " & NextChar, LogType.LOG_TYPE_INFO)
+        If piDebuglevel > DebugLevel.dlEvents Then Log("DeriveIPAddress called for and inString = " & inString & " and NextChar = " & NextChar, LogType.LOG_TYPE_INFO)
         DeriveIPAddress = inString
         Dim NewURLDoc As String = Trim(inString)
         Dim httpIndex As Integer = 0
@@ -587,17 +904,17 @@ Module util
         Try
             ' remove any control characters
             Dim strIndex As Integer = inString.Length
-            If SuperDebug Then Log("RemoveControlCharacters retrieved document with length = " & strIndex.ToString, LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlEvents Then Log("RemoveControlCharacters retrieved document with length = " & strIndex.ToString, LogType.LOG_TYPE_INFO)
             Dim SomethingGotRemoved As Boolean = False
             While strIndex > 0
-                strIndex = strIndex - 1
+                strIndex -= 1
                 If inString(strIndex) < " " Then
                     inString = inString.Remove(strIndex, 1)
                     SomethingGotRemoved = True
                 End If
             End While
             inString = Trim(inString)
-            If SuperDebug And SomethingGotRemoved Then Log("RemoveControlCharacters updated document to = " & inString.ToString, LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlEvents And SomethingGotRemoved Then Log("RemoveControlCharacters updated document to = " & inString.ToString, LogType.LOG_TYPE_INFO)
             RemoveControlCharacters = inString
         Catch ex As Exception
             Log("Error in RemoveControlCharacters while retieving document with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -613,43 +930,43 @@ Module util
         Try
             Do While InIndex < InString.Length
                 If InString(InIndex) = " " Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "!" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = """ Then" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "#" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "$" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "%" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "&" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "'" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "(" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = ")" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "*" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "+" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "," Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "-" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "." Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = ":" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 ElseIf InString(InIndex) = "/" Then
-                    Outstring = Outstring + "_"
+                    Outstring += "_"
                 Else
-                    Outstring = Outstring & InString(InIndex)
+                    Outstring &= InString(InIndex)
                 End If
-                InIndex = InIndex + 1
+                InIndex += 1
             Loop
         Catch ex As Exception
             Log("Error in ReplaceSpecialCharacters. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -660,8 +977,8 @@ Module util
     Function ParseHTTPResponse(response As String, SearchItem As String) As String
         If SearchItem <> "" Then
             Dim ReturnString As String = (From line In response.Split({vbCr(0), vbLf(0)})
-            Where (line.ToLowerInvariant().StartsWith(SearchItem))
-                    Select (line.Substring(SearchItem.Length + 1).Trim())).FirstOrDefault
+                                          Where (line.ToLowerInvariant().StartsWith(SearchItem))
+                                          Select (line.Substring(SearchItem.Length + 1).Trim())).FirstOrDefault
             If ReturnString IsNot Nothing Then
                 Return ReturnString
             Else
@@ -676,7 +993,7 @@ Module util
                 For Each Line As String In Lines
                     If Line IsNot Nothing Then
                         If EmptyLineFound Then
-                            Body = Body & Line
+                            Body &= Line
                         Else
                             If Line = "" Then
                                 EmptyLineFound = True
@@ -728,12 +1045,12 @@ Module util
         Try
             Dim strHostName As String = System.Net.Dns.GetHostName()
             Dim iphe As System.Net.IPHostEntry = System.Net.Dns.GetHostEntry(strHostName)
-            If g_bDebug Then Log("CheckLocalIPv4Address found IP Host = " & strHostName, LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckLocalIPv4Address found IP Host = " & strHostName, LogType.LOG_TYPE_INFO)
             For Each ipheal As System.Net.IPAddress In iphe.AddressList
-                If g_bDebug Then Log("CheckLocalIPv4Address found IP Address = " & ipheal.ToString() & " with AddressFamily = " & ipheal.AddressFamily.ToString, LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckLocalIPv4Address found IP Address = " & ipheal.ToString() & " with AddressFamily = " & ipheal.AddressFamily.ToString, LogType.LOG_TYPE_INFO)
                 If ipheal.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork Then
                     If ipheal.ToString = in_address Then
-                        If g_bDebug Then Log("CheckLocalIPv4Address found IP Address = " & ipheal.ToString() & " equal to HS IP address so Plugin is running local", LogType.LOG_TYPE_INFO)
+                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckLocalIPv4Address found IP Address = " & ipheal.ToString() & " equal to HS IP address so Plugin is running local", LogType.LOG_TYPE_INFO)
                         Return True
                     End If
                 End If
@@ -749,12 +1066,12 @@ Module util
         Try
             Dim strHostName As String = System.Net.Dns.GetHostName()
             Dim iphe As System.Net.IPHostEntry = System.Net.Dns.GetHostEntry(strHostName)
-            If g_bDebug Then Log("GetLocalIPv4Address found IP Host = " & strHostName, LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetLocalIPv4Address found IP Host = " & strHostName, LogType.LOG_TYPE_INFO)
             Dim NbrOfIPv4Interfaces As Integer = 0
             For Each ipheal As System.Net.IPAddress In iphe.AddressList
-                If g_bDebug Then Log("GetLocalIPv4Address found IP Address = " & ipheal.ToString() & " with AddressFamily = " & ipheal.AddressFamily.ToString, LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetLocalIPv4Address found IP Address = " & ipheal.ToString() & " with AddressFamily = " & ipheal.AddressFamily.ToString, LogType.LOG_TYPE_INFO)
                 If ipheal.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork Then
-                    If g_bDebug Then Log("GetLocalIPv4Address found Local IP Address = " & ipheal.ToString(), LogType.LOG_TYPE_INFO)
+                    If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetLocalIPv4Address found Local IP Address = " & ipheal.ToString(), LogType.LOG_TYPE_INFO)
                     NbrOfIPv4Interfaces += 1
                     GetLocalIPv4Address = ipheal.ToString()
                 End If
@@ -769,7 +1086,7 @@ Module util
     End Function
 
     Public Function GetLocalMacAddress() As String
-        If SuperDebug Then Log("GetLocalMacAddress called", LogType.LOG_TYPE_INFO)
+        If piDebuglevel > DebugLevel.dlEvents Then Log("GetLocalMacAddress called", LogType.LOG_TYPE_INFO)
         GetLocalMacAddress = ""
         Dim LocalMacAddress As String = ""
         Dim LocalIPAddress = PlugInIPAddress
@@ -779,16 +1096,16 @@ Module util
         End If
         Try
             For Each nic As System.Net.NetworkInformation.NetworkInterface In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-                If SuperDebug Then Log(String.Format("The MAC address of {0} is {1}{2}", nic.Description, Environment.NewLine, nic.GetPhysicalAddress()), LogType.LOG_TYPE_INFO)
-                'If g_bDebug Then Log(String.Format("The MAC ID of {0} is {1}{2}", nic.Description, Environment.NewLine, nic.Id.ToString), LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The MAC address of {0} is {1}{2}", nic.Description, Environment.NewLine, nic.GetPhysicalAddress()), LogType.LOG_TYPE_INFO)
+                'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("The MAC ID of {0} is {1}{2}", nic.Description, Environment.NewLine, nic.Id.ToString), LogType.LOG_TYPE_INFO)
                 'Log(String.Format("The MAC address of {0} is {1}{2}", nic.Description, Environment.NewLine, nic.GetPhysicalAddress()), LogType.LOG_TYPE_INFO)
                 For Each Ipa In nic.GetIPProperties.UnicastAddresses
-                    If SuperDebug Then Log(String.Format("The IPaddress address of {0} is {1}{2}", nic.Description, Environment.NewLine, Ipa.Address.ToString), LogType.LOG_TYPE_INFO)
-                    'If g_bDebug Then Log(String.Format("The IPaddress address of {0} is {1}{2}", nic.Description, Environment.NewLine, Ipa.Address.ToString), LogType.LOG_TYPE_INFO)
+                    If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The IPaddress address of {0} is {1}{2}", nic.Description, Environment.NewLine, Ipa.Address.ToString), LogType.LOG_TYPE_INFO)
+                    'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("The IPaddress address of {0} is {1}{2}", nic.Description, Environment.NewLine, Ipa.Address.ToString), LogType.LOG_TYPE_INFO)
                     If Ipa.Address.ToString = LocalIPAddress Then
                         ' OK we found our IPaddress
                         LocalMacAddress = nic.GetPhysicalAddress().ToString
-                        If SuperDebug Then Log("GetLocalMacAddress found local MAC address = " & LocalMacAddress, LogType.LOG_TYPE_INFO)
+                        If piDebuglevel > DebugLevel.dlEvents Then Log("GetLocalMacAddress found local MAC address = " & LocalMacAddress, LogType.LOG_TYPE_INFO)
                         GetLocalMacAddress = LocalMacAddress
                     End If
                 Next
@@ -796,21 +1113,21 @@ Module util
         Catch ex As Exception
             Log("Error in GetLocalMacAddress trying to get own MAC address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
-        If g_bDebug Then Log("Error in GetLocalMacAddress trying to get own MAC address, none found", LogType.LOG_TYPE_ERROR)
+        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in GetLocalMacAddress trying to get own MAC address, none found", LogType.LOG_TYPE_ERROR)
     End Function
 
     Public Function GetEthernetPorts() As Dictionary(Of String, String)
-        If SuperDebug Then Log("GetEthernetPorts called", LogType.LOG_TYPE_INFO)
+        If piDebuglevel > DebugLevel.dlEvents Then Log("GetEthernetPorts called", LogType.LOG_TYPE_INFO)
         Dim Ethernetports As New Dictionary(Of String, String)
         Try
             For Each nic As System.Net.NetworkInformation.NetworkInterface In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-                If SuperDebug Then Log(String.Format("The MAC address of {0} is {1}", nic.Description, nic.GetPhysicalAddress()), LogType.LOG_TYPE_INFO)
-                'If g_bDebug Then Log(String.Format("The MAC address of {0} is {1}", nic.Description, nic.GetPhysicalAddress()), LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The MAC address of {0} is {1}", nic.Description, nic.GetPhysicalAddress()), LogType.LOG_TYPE_INFO)
+                'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("The MAC address of {0} is {1}", nic.Description, nic.GetPhysicalAddress()), LogType.LOG_TYPE_INFO)
                 If nic.OperationalStatus = Net.NetworkInformation.OperationalStatus.Up Then
-                    If g_bDebug Then Log(String.Format("The MAC address and ID of {0} are {1} and {2}", nic.Description, nic.GetPhysicalAddress(), nic.Id.ToString), LogType.LOG_TYPE_INFO)
+                    If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("The MAC address and ID of {0} are {1} and {2}", nic.Description, nic.GetPhysicalAddress(), nic.Id.ToString), LogType.LOG_TYPE_INFO)
                     For Each Ipa In nic.GetIPProperties.UnicastAddresses
-                        If SuperDebug Then Log(String.Format("The IPaddress address of {0} is {1}", nic.Description, Ipa.Address.ToString), LogType.LOG_TYPE_INFO)
-                        If g_bDebug Then Log(String.Format("The IPaddress address of {0} is {1}", nic.Description, Ipa.Address.ToString), LogType.LOG_TYPE_INFO)
+                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The IPaddress address of {0} is {1}", nic.Description, Ipa.Address.ToString), LogType.LOG_TYPE_INFO)
+                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("The IPaddress address of {0} is {1}", nic.Description, Ipa.Address.ToString), LogType.LOG_TYPE_INFO)
                         If Ipa.Address.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork Then
                             ' we found an IPv4 IPaddress
                             Ethernetports.Add(nic.Id.ToString, nic.Name & "::::::::::" & Ipa.Address.ToString)
@@ -819,7 +1136,7 @@ Module util
                     Next
                 End If
             Next
-            If g_bDebug Then Log("GetEthernetPorts found " & Ethernetports.Count.ToString & " Ethernetports with IPv4 addresses assigned", LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetEthernetPorts found " & Ethernetports.Count.ToString & " Ethernetports with IPv4 addresses assigned", LogType.LOG_TYPE_INFO)
             If Ethernetports.Count > 0 Then
                 Return Ethernetports
             Else
@@ -843,15 +1160,15 @@ Module util
         Try
             Do While InIndex < InString.Length
                 If InString(InIndex) = ">" Then
-                    Outstring = Outstring + "&gt;"
+                    Outstring += "&gt;"
                 ElseIf InString(InIndex) = "<" Then
-                    Outstring = Outstring + "&lt;"
+                    Outstring += "&lt;"
                 ElseIf InString(InIndex) = "'" Then
-                    Outstring = Outstring + "&#39;"
+                    Outstring += "&#39;"
                 Else
-                    Outstring = Outstring & InString(InIndex)
+                    Outstring &= InString(InIndex)
                 End If
-                InIndex = InIndex + 1
+                InIndex += 1
             Loop
         Catch ex As Exception
             Log("Error in EncodeTags. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -862,7 +1179,7 @@ Module util
     Public Function FindPairInJSONString(inString As String, inName As String) As Object
         Try
             If inString = "" Or inName = "" Then Return Nothing
-            If SuperDebug Then Log("FindPairInJSONString called with inString = " & inString & " and inName = " & inName, LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inString = " & inString & " and inName = " & inName, LogType.LOG_TYPE_INFO)
             Dim json As New JavaScriptSerializer
             Dim JSONdataLevel1 As Object
             JSONdataLevel1 = json.DeserializeObject(inString)
@@ -875,14 +1192,14 @@ Module util
                     ElseIf TypeOf (Entry.value) Is Integer Then
                         Return Entry.value.ToString
                     Else
-                        If SuperDebug Then Log("FindPairInJSONString called with inString = " & inString & " did not know type for key = " & inName & " in inString = " & inString, LogType.LOG_TYPE_INFO)
+                        If piDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inString = " & inString & " did not know type for key = " & inName & " in inString = " & inString, LogType.LOG_TYPE_INFO)
                         Return json.Serialize(Entry.value)
                     End If
                 End If
             Next
-            If SuperDebug Then Log("FindPairInJSONString called with inString = " & inString & " did not find the key = " & inName & " in inString = " & inString, LogType.LOG_TYPE_WARNING)
+            If piDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inString = " & inString & " did not find the key = " & inName & " in inString = " & inString, LogType.LOG_TYPE_WARNING)
         Catch ex As Exception
-            If g_bDebug Then Log("Error in FindPairInJSONString processing response with error = " & ex.Message & " with inString = " & inString & " and inName = " & inName, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in FindPairInJSONString processing response with error = " & ex.Message & " with inString = " & inString & " and inName = " & inName, LogType.LOG_TYPE_ERROR)
         End Try
         Return ""
     End Function
@@ -920,5 +1237,33 @@ Module util
         Return bytes
     End Function
 
+    Public Function ConvertArrayToList(inArray As System.Array) As List(Of String)
+        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("ConvertArrayToList called", LogType.LOG_TYPE_INFO)
+        Dim outList As New List(Of String)
+        If inArray Is Nothing AndAlso inArray.Length = 0 Then
+            Return outList
+        End If
+        For Each inString As String In inArray
+            outList.Add(inString)
+        Next
+        Return outList
+    End Function
+
+    Public Function ConvertSecondsToTimeFormat(ByVal Seconds As Integer) As String
+        ConvertSecondsToTimeFormat = "00:00:00"
+        If Seconds < 0 Then Exit Function
+        Dim StartTime As Date = CDate("00:00:00")
+        ConvertSecondsToTimeFormat = Format(DateAdd("s", CType(Seconds, Double), StartTime), "HH:mm:ss")
+    End Function
+
+    Public Function ConvertDictionaryToQueryString(inDictionary As Dictionary(Of String, String)) As String
+        If inDictionary Is Nothing Then Return ""
+        Dim returnString As String = ""
+        For Each entry In inDictionary
+            If returnString <> "" Then returnString &= "&"
+            returnString &= entry.Key & "=" & entry.Value
+        Next
+        Return returnString
+    End Function
 
 End Module

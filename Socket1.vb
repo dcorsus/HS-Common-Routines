@@ -69,7 +69,45 @@ Public Class AsynchronousClient
         MySocket = Nothing
         MySocketIsClosed = True
         If PIDebuglevel > DebugLevel.dlErrorsOnly Then Log("ConnectSocket called with ipAddress = " & Server & " and ipPort = " & ipPort, LogType.LOG_TYPE_INFO)
-
+        ' removed 4/14/2018
+        'Dim ipHostInfo As IPHostEntry = Nothing
+        'Dim ip_Address As IPAddress = Nothing
+        'Try
+        'ipHostInfo = Dns.GetHostEntry(Server)
+        'Catch ex As Exception
+        'If piDebuglevel > DebugLevel.dlEvents Then Log("Error in ConnectSocket displaying IP info with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        'End Try
+        'Try
+        'If piDebuglevel > DebugLevel.dlEvents And Not ipHostInfo Is Nothing Then
+        'For index = 0 To UBound(ipHostInfo.AddressList, 1)
+        'Dim tempip_Address As IPAddress = ipHostInfo.AddressList(index)
+        'Log("ConnectSocket found ipAddress(" & index.ToString & ") = " & tempip_Address.ToString & " and address type = " & tempip_Address.AddressFamily.ToString, LogType.LOG_TYPE_INFO)
+        'Next
+        'End If
+        'Catch ex As Exception
+        'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in ConnectSocket displaying IP info with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        'End Try
+        'Try
+        'If Not ipHostInfo Is Nothing Then
+        'ip_Address = ipHostInfo.AddressList(0)
+        'For index = 0 To UBound(ipHostInfo.AddressList, 1)
+        'ip_Address = ipHostInfo.AddressList(index)
+        'If ip_Address.AddressFamily = AddressFamily.InterNetwork Then Exit For
+        'Next
+        'If ip_Address.AddressFamily <> AddressFamily.InterNetwork Then
+        'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in ConnectSocket getting the IPv4 IP address", LogType.LOG_TYPE_ERROR)
+        'For index = 0 To UBound(ipHostInfo.AddressList, 1)
+        'Dim tempip_Address As IPAddress = ipHostInfo.AddressList(index)
+        'Log("ConnectSocket found ipAddress(" & index.ToString & ") = " & tempip_Address.ToString & " and address type = " & tempip_Address.AddressFamily.ToString, LogType.LOG_TYPE_INFO)
+        'Next
+        'Exit Function
+        'End If
+        'Else
+        'ip_Address = IPAddress.Parse(Server)
+        'End If
+        'Catch ex As Exception
+        'ip_Address = IPAddress.Parse(Server)
+        'End Try
         Try
             Dim remoteEP As New IPEndPoint(IPAddress.Parse(Server), ipPort) 'ip_Address, ipPort)
             ' Create a TCP/IP socket.
