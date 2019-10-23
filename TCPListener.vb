@@ -71,13 +71,13 @@ Class MyTCPListener
     Public Event DataReceived As DataEventHandler
 
     Public Function Start(hostAdress As String, Optional port As Integer = 0) As Integer
-        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyTcpListener.Start called with HostAddress = " & hostAdress & " and port = " & port.ToString, LogType.LOG_TYPE_INFO)
+        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyTcpListener.Start called with local IP Address = " & hostAdress & " and requested local port = " & port.ToString, LogType.LOG_TYPE_INFO)
         MyLocalIPAddress = hostAdress
         Start = 0
         Try
             MyListenSocket = New TcpListener(IPAddress.Parse(hostAdress), port)
         Catch ex As Exception
-            If piDebuglevel > DebugLevel.dlOff Then Log("MyTcpListener.Start had an error creating a TCPListenener with HostAddress = " & hostAdress & " and port = " & port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("MyTcpListener.Start had an error creating a TCPListenener with local IP Address = " & hostAdress & " and requested local port = " & port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Exit Function
         End Try
         connectDone.Reset()
@@ -92,10 +92,10 @@ Class MyTCPListener
                 Dim ListenerEndPoint As System.Net.IPEndPoint = MyListenSocket.LocalEndpoint
                 MyLocalIPPort = ListenerEndPoint.Port
                 Start = MyLocalIPPort
-                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyTcpListener.Start successfully opened TCP Listening Port with HostAddress = " & hostAdress & " and HostIPPort = " & MyLocalIPPort.ToString, LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyTcpListener.Start successfully opened TCP Listening Port with Local IP Address = " & hostAdress & " and local port = " & MyLocalIPPort.ToString, LogType.LOG_TYPE_INFO)
             End With
         Catch ex As Exception
-            If piDebuglevel > DebugLevel.dlOff Then Log("MyTcpListener.Start had an error while begining to listening on HostAddress = " & hostAdress & " and port = " & port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("MyTcpListener.Start had an error while begining to listening on local IP address = " & hostAdress & " and requested local port = " & port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             isConnected = False
         Finally
             RaiseEvent Connection(isConnected)

@@ -17,15 +17,15 @@ Public Class MySSDP
 
     Private SSDPAsyncSocket As MyUdpClient = Nothing 'MCastSocket = Nothing
     Private MySSDPClient As UdpClient 'Socket
-    Private SSDPAsyncSocketLoopback As MCastSocket = Nothing
-    Private MySSDPClientLoopback As Socket
+    Private SSDPAsyncSocketLoopback As MyUdpClient = Nothing
+    Private MySSDPClientLoopback As UdpClient
     Private UPNPMonitoringDevice As String = ""
 
-    Private MulticastAsyncSocket As MCastSocket = Nothing
-    Private MyMulticastClient As Socket
+    Private MulticastAsyncSocket As MyUdpClient = Nothing
+    Private MyMulticastClient As UdpClient 'Socket
 
     Private MyUPnPMCastIPAddress As String = "239.255.255.250"
-    Private MyUPnPMCastPort As String = "1900"
+    Private MyUPnPMCastPort As Integer = 1900
     Private MyDevicesLinkedList As New MyUPnPDevices
 
     Private MyEventListener As MyTcpListener
@@ -116,7 +116,7 @@ Public Class MySSDP
             If SSDPAsyncSocket IsNot Nothing Then
                 Try
                     RemoveHandler SSDPAsyncSocket.DataReceived, AddressOf HandleSSDPDataReceived
-                    RemoveHandler SSDPAsyncSocket.MCastSocketClosed, AddressOf HandleSSDPMCastSocketCloseEvent
+                    RemoveHandler SSDPAsyncSocket.UdpSocketClosed, AddressOf HandleSSDPUdpSocketCloseEvent
                 Catch ex As Exception
                 End Try
                 SSDPAsyncSocket.CloseSocket()
@@ -128,7 +128,7 @@ Public Class MySSDP
             If SSDPAsyncSocketLoopback IsNot Nothing Then
                 Try
                     RemoveHandler SSDPAsyncSocketLoopback.DataReceived, AddressOf HandleSSDPDataReceived
-                    RemoveHandler SSDPAsyncSocketLoopback.MCastSocketClosed, AddressOf HandleSSDPMCastSocketCloseEvent
+                    RemoveHandler SSDPAsyncSocketLoopback.UdpSocketClosed, AddressOf HandleSSDPUdpSocketCloseEvent
                 Catch ex As Exception
                 End Try
                 SSDPAsyncSocketLoopback.CloseSocket()
@@ -140,7 +140,7 @@ Public Class MySSDP
             If MulticastAsyncSocket IsNot Nothing Then
                 Try
                     RemoveHandler MulticastAsyncSocket.DataReceived, AddressOf HandleSSDPDataReceived
-                    RemoveHandler MulticastAsyncSocket.MCastSocketClosed, AddressOf HandleMCastSocketCloseEvent
+                    RemoveHandler MulticastAsyncSocket.UdpSocketClosed, AddressOf HandleMCastSocketCloseEvent
                 Catch ex As Exception
                 End Try
                 MulticastAsyncSocket.CloseSocket()
@@ -161,7 +161,7 @@ Public Class MySSDP
         If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.CreateMulticastListener called for PlugInIPAddress = " & PlugInIPAddress, LogType.LOG_TYPE_INFO)
         If MulticastAsyncSocket Is Nothing Then
             Try
-                MulticastAsyncSocket = New MCastSocket(MyUPnPMCastIPAddress, MyUPnPMCastPort)
+                MulticastAsyncSocket = New MyUdpClient(MyUPnPMCastIPAddress, MyUPnPMCastPort)
             Catch ex As Exception
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.CreateMulticastListener unable to create a Multicast Socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                 Exit Sub
@@ -171,18 +171,9 @@ Public Class MySSDP
                 Exit Sub
             End If
             AddHandler MulticastAsyncSocket.DataReceived, AddressOf HandleSSDPDataReceived
-            AddHandler MulticastAsyncSocket.MCastSocketClosed, AddressOf HandleMCastSocketCloseEvent
+            AddHandler MulticastAsyncSocket.UdpSocketClosed, AddressOf HandleMCastSocketCloseEvent
             Try
-                ' Get the local IP address used by the listener and the sender to exchange multicast messages. 
-                Dim localIPAddr As IPAddress
-                If ImRunningOnLinux Then
-                    localIPAddr = IPAddress.Parse(AnyIPv4Address) ' changed in v09 from PlugInIPAddress to AnyAddress 0.0.0.0 for Linux
-                Else
-                    localIPAddr = IPAddress.Parse(PlugInIPAddress)
-                End If
-                ' Create an IPEndPoint object.  
-                Dim IPlocal As New IPEndPoint(localIPAddr, 1900)
-                MyMulticastClient = MulticastAsyncSocket.ConnectSocket(IPlocal)
+                MyMulticastClient = MulticastAsyncSocket.ConnectSocket(MyUPnPMCastIPAddress)
             Catch ex As Exception
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.CreateMulticastListener unable to connect Socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                 Exit Sub
@@ -191,10 +182,14 @@ Public Class MySSDP
 
         If MyMulticastClient Is Nothing Then
             If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.CreateMulticastListener. No Client!", LogType.LOG_TYPE_ERROR)
-            RestartMulticastListenerFlag = True
+            HandleMCastSocketCloseEvent(Nothing)    ' close the socket completely           ' added 10/21/2019 in v42 to deal with proper retries when failing to open socket
+            'RestartMulticastListenerFlag = True    ' this is set in HandleMCastCloseEvent
             Exit Sub
         Else
             RestartMulticastListenerFlag = False
+            MyMulticastClient.EnableBroadcast = True
+            MyMulticastClient.Ttl = 4
+            MyMulticastClient.MulticastLoopback = True
         End If
 
         If alsoTCPListener Then StartEventListener(TCPListenerPort)
@@ -220,7 +215,7 @@ Public Class MySSDP
             If MulticastAsyncSocket IsNot Nothing Then
                 Try
                     RemoveHandler MulticastAsyncSocket.DataReceived, AddressOf HandleSSDPDataReceived
-                    RemoveHandler MulticastAsyncSocket.MCastSocketClosed, AddressOf HandleMCastSocketCloseEvent
+                    RemoveHandler MulticastAsyncSocket.UdpSocketClosed, AddressOf HandleMCastSocketCloseEvent
                 Catch ex As Exception
                 End Try
                 Try
@@ -666,15 +661,15 @@ Public Class MySSDP
         NotificationHandlerReEntryFlag = False
     End Sub
 
-    Public Sub HandleSSDPMCastSocketCloseEvent(sender As Object)
+    Public Sub HandleSSDPUdpSocketCloseEvent(sender As Object)
         If isClosing Then Exit Sub
-        If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.HandleSSDPMCastSocketCloseEvent received Close Socket Event", LogType.LOG_TYPE_ERROR)
+        If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.HandleSSDPUdpSocketCloseEvent received Close Socket Event", LogType.LOG_TYPE_ERROR)
         ' we close the ssdpsocket here, will be restarted with next call to DoSSDPDiscovery
         Try
             If SSDPAsyncSocket IsNot Nothing Then
                 Try
                     RemoveHandler SSDPAsyncSocket.DataReceived, AddressOf HandleSSDPDataReceived
-                    RemoveHandler SSDPAsyncSocket.MCastSocketClosed, AddressOf HandleSSDPMCastSocketCloseEvent
+                    RemoveHandler SSDPAsyncSocket.UdpSocketClosed, AddressOf HandleSSDPUdpSocketCloseEvent
                 Catch ex As Exception
                 End Try
                 SSDPAsyncSocket.CloseSocket()
@@ -686,7 +681,7 @@ Public Class MySSDP
             If SSDPAsyncSocketLoopback IsNot Nothing Then
                 Try
                     RemoveHandler SSDPAsyncSocketLoopback.DataReceived, AddressOf HandleSSDPDataReceived
-                    RemoveHandler SSDPAsyncSocketLoopback.MCastSocketClosed, AddressOf HandleSSDPMCastSocketCloseEvent
+                    RemoveHandler SSDPAsyncSocketLoopback.UdpSocketClosed, AddressOf HandleSSDPUdpSocketCloseEvent
                 Catch ex As Exception
                 End Try
                 SSDPAsyncSocketLoopback.CloseSocket()
@@ -713,12 +708,12 @@ Public Class MySSDP
                 Exit Function
             End If
             AddHandler SSDPAsyncSocket.DataReceived, AddressOf HandleSSDPDataReceived
-            AddHandler SSDPAsyncSocket.MCastSocketClosed, AddressOf HandleSSDPMCastSocketCloseEvent
+            AddHandler SSDPAsyncSocket.UdpSocketClosed, AddressOf HandleSSDPUdpSocketCloseEvent
             Try
                 'Dim localIPAddr As IPAddress = IPAddress.Parse(PlugInIPAddress)
                 ' Create an IPEndPoint object.  
                 'Dim IPlocal As New IPEndPoint(localIPAddr, 0) ' by using Port = 0, I indicate any Source UDP packets not just those from port 1900, which are NOTIFY packets not M-Search
-                MySSDPClient = SSDPAsyncSocket.ConnectSocket(MyUPnPMCastIPAddress, MyUPnPMCastPort) 'SSDPAsyncSocket.ConnectSocket(IPlocal)
+                MySSDPClient = SSDPAsyncSocket.ConnectSocket("") 'by passing a zero string, I indicate no need to join any multicast groups. This is just a listener for SSDP discovery responses
             Catch ex As Exception
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartSSDPDiscovery unable to connect Socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                 Exit Function
@@ -726,6 +721,10 @@ Public Class MySSDP
             If MySSDPClient Is Nothing Then
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartSSDPDiscovery. No Client!", LogType.LOG_TYPE_ERROR)
                 Exit Function
+            Else
+                MySSDPClient.EnableBroadcast = True
+                MySSDPClient.Ttl = 4
+                MySSDPClient.MulticastLoopback = True
             End If
             Try
                 SSDPAsyncSocket.Receive()
@@ -733,9 +732,9 @@ Public Class MySSDP
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartSSDPDiscovery for UPnPDevice = " & "" & " unable to receive data to Socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             End Try
         End If
-        If 1 = 2 Then 'SSDPAsyncSocketLoopback Is Nothing Then dcor temporary remove this. I use now bind to IPV4 interface so maybe nomore need to call out the loopback interface
+        If SSDPAsyncSocketLoopback Is Nothing Then ' I use now bind to IPV4 interface so maybe nomore need to call out the loopback interface
             Try
-                SSDPAsyncSocketLoopback = New MCastSocket(MyUPnPMCastIPAddress, MyUPnPMCastPort)
+                SSDPAsyncSocketLoopback = New MyUdpClient(AnyIPv4Address, discoverPort)
             Catch ex As Exception
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartSSDPDiscovery unable to create a Multicast LoopbackSocket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                 Exit Function
@@ -745,17 +744,9 @@ Public Class MySSDP
                 Exit Function
             End If
             AddHandler SSDPAsyncSocketLoopback.DataReceived, AddressOf HandleSSDPDataReceived
-            AddHandler SSDPAsyncSocketLoopback.MCastSocketClosed, AddressOf HandleSSDPMCastSocketCloseEvent
+            AddHandler SSDPAsyncSocketLoopback.UdpSocketClosed, AddressOf HandleSSDPUdpSocketCloseEvent
             Try
-                ' Create an IPEndPoint object.  
-                Dim localIPAddr As IPAddress
-                If ImRunningOnLinux Then
-                    localIPAddr = IPAddress.Parse(AnyIPv4Address) ' changed from LoopBackIPv4Address to AnyIPv4Address in v09
-                Else
-                    localIPAddr = IPAddress.Parse(LoopBackIPv4Address)
-                End If
-                Dim IPlocal As New IPEndPoint(localIPAddr, 0)  ' by using Port = 0, I indicate any Source UDP packets not just those from port 1900, which are NOTIFY packets not M-Search
-                MySSDPClientLoopback = SSDPAsyncSocketLoopback.ConnectSocket(IPlocal)
+                MySSDPClientLoopback = SSDPAsyncSocketLoopback.ConnectSocket("")
             Catch ex As Exception
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartSSDPDiscovery unable to connect Loopback Socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                 Exit Function
@@ -763,6 +754,10 @@ Public Class MySSDP
             If MySSDPClientLoopback Is Nothing Then
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartSSDPDiscovery. No Loopback Client!", LogType.LOG_TYPE_ERROR)
                 Exit Function
+            Else
+                MySSDPClientLoopback.EnableBroadcast = True
+                MySSDPClientLoopback.Ttl = 4
+                MySSDPClientLoopback.MulticastLoopback = True
             End If
             Try
                 SSDPAsyncSocketLoopback.Receive()
@@ -776,7 +771,7 @@ Public Class MySSDP
         Dim postData As String = ""
         postData = "M-SEARCH * HTTP/1.1" & vbCrLf
         'postData &= "HOST: 239.255.255.250:1900" & vbCrLf  ' changed from abusing a Multicast address to use unicast on 10/20/2019
-        postData &= "HOST: " & PlugInIPAddress & ":" & SSDPAsyncSocket.LocalIPPort.ToString & vbCrLf
+        postData &= "HOST: 239.255.255.250:" & SSDPAsyncSocket.LocalIPPort.ToString & vbCrLf
         postData &= "ST: " & UPNPMonitoringDevice & vbCrLf 'upnp:rootdevice" & vbCrLf 'UPnPDeviceToLookFor & vbCrLf  ' upnp:rootdevice ' always look for the root device!
         postData &= "MAN: ""ssdp:discover""" & vbCrLf
         postData &= "MX: 4" & vbCrLf
@@ -786,8 +781,9 @@ Public Class MySSDP
         Dim StartTime As DateTime = DateTime.Now
         If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.StartSSDPDiscovery, waiting for 9 seconds while discovering UPnP Devices ..... ", LogType.LOG_TYPE_INFO, LogColorGreen)
 
-        If SSDPAsyncSocket IsNot Nothing Then SSDPAsyncSocket.Send(postData)
-        If SSDPAsyncSocketLoopback IsNot Nothing Then SSDPAsyncSocketLoopback.Send(postData)
+        If SSDPAsyncSocket IsNot Nothing Then SSDPAsyncSocket.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
+        If SSDPAsyncSocket IsNot Nothing Then SSDPAsyncSocket.Send(postData, "255.255.255.255", MyUPnPMCastPort)        ' added to try
+        If SSDPAsyncSocketLoopback IsNot Nothing Then SSDPAsyncSocketLoopback.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
         wait(9)
 
         Dim elapsed_time As TimeSpan = DateTime.Now.Subtract(StartTime)
@@ -831,7 +827,7 @@ Public Class MySSDP
             If SSDPAsyncSocket IsNot Nothing Then
                 Try
                     RemoveHandler SSDPAsyncSocket.DataReceived, AddressOf HandleSSDPDataReceived
-                    RemoveHandler SSDPAsyncSocket.MCastSocketClosed, AddressOf HandleSSDPMCastSocketCloseEvent
+                    RemoveHandler SSDPAsyncSocket.UdpSocketClosed, AddressOf HandleSSDPUdpSocketCloseEvent
                 Catch ex As Exception
                 End Try
                 SSDPAsyncSocket.CloseSocket()
@@ -843,7 +839,7 @@ Public Class MySSDP
             If SSDPAsyncSocketLoopback IsNot Nothing Then
                 Try
                     RemoveHandler SSDPAsyncSocketLoopback.DataReceived, AddressOf HandleSSDPDataReceived
-                    RemoveHandler SSDPAsyncSocketLoopback.MCastSocketClosed, AddressOf HandleSSDPMCastSocketCloseEvent
+                    RemoveHandler SSDPAsyncSocketLoopback.UdpSocketClosed, AddressOf HandleSSDPUdpSocketCloseEvent
                 Catch ex As Exception
                 End Try
                 SSDPAsyncSocketLoopback.CloseSocket()
@@ -861,17 +857,16 @@ Public Class MySSDP
         SSDPAsyncSocket.response = ""
         Dim postData As String = ""
         postData = "M-SEARCH * HTTP/1.1" & vbCrLf
-        postData &= "HOST: 239.255.255.250:1900" & vbCrLf
+        postData &= "HOST: 239.255.255.250:" & SSDPAsyncSocket.LocalIPPort.ToString & vbCrLf
         postData &= "ST: " & UPNPMonitoringDevice & vbCrLf 'upnp:rootdevice" & vbCrLf 'UPnPDeviceToLookFor & vbCrLf  ' upnp:rootdevice ' always look for the root device!
         postData &= "MAN: ""ssdp:discover""" & vbCrLf
         postData &= "MX: 4" & vbCrLf
         postData &= "" & vbCrLf
         'If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("Sending M-Search for " & UPNPMonitoringDevice, LogType.LOG_TYPE_INFO, LogColorGreen)
         If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.SendMSearch Sending M-Search for " & UPNPMonitoringDevice, LogType.LOG_TYPE_INFO, LogColorGreen)
-        If SSDPAsyncSocket IsNot Nothing Then SSDPAsyncSocket.Send(postData)
-        If SSDPAsyncSocketLoopback IsNot Nothing Then SSDPAsyncSocketLoopback.Send(postData)
+        If SSDPAsyncSocket IsNot Nothing Then SSDPAsyncSocket.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
+        If SSDPAsyncSocketLoopback IsNot Nothing Then SSDPAsyncSocketLoopback.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
     End Sub
-
 
     Public Sub SendUSearch(port As String)
         ' send a Unicast search
@@ -884,13 +879,12 @@ Public Class MySSDP
             postData &= "MAN: ""ssdp:discover""" & vbCrLf
             postData &= "" & vbCrLf
             If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.SendUSearch Sending M-Search for " & UPNPMonitoringDevice, LogType.LOG_TYPE_INFO, LogColorGreen)
-            If SSDPAsyncSocket IsNot Nothing Then SSDPAsyncSocket.Send(postData)
-            If SSDPAsyncSocketLoopback IsNot Nothing Then SSDPAsyncSocketLoopback.Send(postData)
+            If SSDPAsyncSocket IsNot Nothing Then SSDPAsyncSocket.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
+            If SSDPAsyncSocketLoopback IsNot Nothing Then SSDPAsyncSocketLoopback.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.SendUSearch Sending M-Search for " & UPNPMonitoringDevice & " but ended in Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Sub
-
 
     Function ParseSsdpResponse(response As String, SearchItem As String) As String
         ParseSsdpResponse = ""
@@ -1293,14 +1287,16 @@ Public Class MySSDP
                     If isTheSameCounter > 30 Then
                         ' this has taken too long, let's kick the socket
                         MulticastAsyncSocket.CloseSocket()
-                        Dim localIPAddr As IPAddress
-                        If ImRunningOnLinux Then
-                            localIPAddr = IPAddress.Parse(AnyIPv4Address)
-                        Else
-                            localIPAddr = IPAddress.Parse(PlugInIPAddress)
+                        MyMulticastClient = MulticastAsyncSocket.ConnectSocket(MyUPnPMCastIPAddress)
+                        If MyMulticastClient Is Nothing Then
+                            ' remove and retry from beginning!      ' added 10/21/2019
+                            HandleMCastSocketCloseEvent(Nothing)
+                            overallBytesReceivedMulticast = 0
+                            isTheSameCounter = 0
+                            e = Nothing
+                            sender = Nothing
+                            Exit Sub
                         End If
-                        Dim IPlocal As New IPEndPoint(localIPAddr, 1900)
-                        MyMulticastClient = MulticastAsyncSocket.ConnectSocket(IPlocal)
                         MulticastAsyncSocket.Receive()
                         ' reset counters
                         MulticastAsyncSocket.BytesReceived = 0
@@ -1728,7 +1724,7 @@ Public Class MyUPnPDevice
             webRequest.Method = "GET"
             webRequest.KeepAlive = False
             webRequest.ContentLength = 0
-            webRequest.Timeout = 5000 ' set to max of 5 seconds changed on 9/10/2019
+            webRequest.Timeout = 20000 ' 5000 ' set to max of 5 seconds changed on 9/10/2019 dcor this seems to cause issues
             Dim webResponse As WebResponse = webRequest.GetResponse
             Try
                 ApplicationURL = webResponse.Headers("Application-URL")
@@ -1999,18 +1995,6 @@ Public Class MyUPnPDevice
         If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPDevice.ProcessDeviceInfo for device = " & NewDevice.UniqueDeviceName & " is done with NewDeviceFlag = " & NewDeviceFlag.ToString & " and IsRoot = " & IsRoot.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
         Return True
     End Function
-
-    Public Sub OneServiceDied__()
-        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("OneServiceDied called for UDN = " & UniqueDeviceName, LogType.LOG_TYPE_WARNING)
-        'If UPnPDebuglevel > DebugLevel.dlOff Then Log("MyUPnPDevice.OneServiceDied called for UDN = " & UniqueDeviceName, LogType.LOG_TYPE_WARNING)
-        Try
-            If ReferenceToSSDP IsNot Nothing Then
-                TimeoutValue = 4 ' set to 9 seconds (5 seconds is added in the property), if not rediscovered by then, the device will go off-line
-                ReferenceToSSDP.SendMSearch()
-            End If
-        Catch ex As Exception
-        End Try
-    End Sub
 
     Public Sub OneChildDeviceDied(ChildUDN As String)
         If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPDevice.OneChildDeviceDied called for UDN = " & UniqueDeviceName, LogType.LOG_TYPE_WARNING)
