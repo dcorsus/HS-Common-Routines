@@ -75,7 +75,7 @@ Public Class MySSDP
         End Try
         Try
             myAuditTimer = New Timers.Timer With {
-                .Interval = 60000,  ' every minute
+                .Interval = 300000,  ' every 5 minutes
                 .AutoReset = True,
                 .Enabled = True
             }
@@ -158,7 +158,8 @@ Public Class MySSDP
     End Sub
 
     Public Sub CreateMulticastListener(Optional alsoTCPListener As Boolean = True)
-        If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.CreateMulticastListener called for PlugInIPAddress = " & PlugInIPAddress, LogType.LOG_TYPE_INFO)
+        ' this creates the permanent listening port for ssdp messages such as ssdp:alive and ssdp:byebye
+        If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.CreateMulticastListener called for PlugInIPAddress = " & PlugInIPAddress, LogType.LOG_TYPE_INFO) ' dcor level
         If MulticastAsyncSocket Is Nothing Then
             Try
                 MulticastAsyncSocket = New MyUdpClient(MyUPnPMCastIPAddress, MyUPnPMCastPort)
@@ -187,9 +188,6 @@ Public Class MySSDP
             Exit Sub
         Else
             RestartMulticastListenerFlag = False
-            MyMulticastClient.EnableBroadcast = True
-            MyMulticastClient.Ttl = 4
-            MyMulticastClient.MulticastLoopback = True
         End If
 
         If alsoTCPListener Then StartEventListener(TCPListenerPort)
@@ -710,9 +708,6 @@ Public Class MySSDP
             AddHandler SSDPAsyncSocket.DataReceived, AddressOf HandleSSDPDataReceived
             AddHandler SSDPAsyncSocket.UdpSocketClosed, AddressOf HandleSSDPUdpSocketCloseEvent
             Try
-                'Dim localIPAddr As IPAddress = IPAddress.Parse(PlugInIPAddress)
-                ' Create an IPEndPoint object.  
-                'Dim IPlocal As New IPEndPoint(localIPAddr, 0) ' by using Port = 0, I indicate any Source UDP packets not just those from port 1900, which are NOTIFY packets not M-Search
                 MySSDPClient = SSDPAsyncSocket.ConnectSocket("") 'by passing a zero string, I indicate no need to join any multicast groups. This is just a listener for SSDP discovery responses
             Catch ex As Exception
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartSSDPDiscovery unable to connect Socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -854,18 +849,16 @@ Public Class MySSDP
     End Function
 
     Public Sub SendMSearch()
-        SSDPAsyncSocket.response = ""
+        'SSDPAsyncSocket.response = ""
         Dim postData As String = ""
         postData = "M-SEARCH * HTTP/1.1" & vbCrLf
-        postData &= "HOST: 239.255.255.250:" & SSDPAsyncSocket.LocalIPPort.ToString & vbCrLf
-        postData &= "ST: " & UPNPMonitoringDevice & vbCrLf 'upnp:rootdevice" & vbCrLf 'UPnPDeviceToLookFor & vbCrLf  ' upnp:rootdevice ' always look for the root device!
+        postData &= "HOST: 239.255.255.250:1900" & vbCrLf
+        postData &= "ST: " & UPNPMonitoringDevice & vbCrLf
         postData &= "MAN: ""ssdp:discover""" & vbCrLf
         postData &= "MX: 4" & vbCrLf
         postData &= "" & vbCrLf
-        'If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("Sending M-Search for " & UPNPMonitoringDevice, LogType.LOG_TYPE_INFO, LogColorGreen)
-        If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.SendMSearch Sending M-Search for " & UPNPMonitoringDevice, LogType.LOG_TYPE_INFO, LogColorGreen)
-        If SSDPAsyncSocket IsNot Nothing Then SSDPAsyncSocket.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
-        If SSDPAsyncSocketLoopback IsNot Nothing Then SSDPAsyncSocketLoopback.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
+        If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.SendMSearch Sending M-Search for " & UPNPMonitoringDevice, LogType.LOG_TYPE_INFO, LogColorGreen)
+        If MulticastAsyncSocket IsNot Nothing Then MulticastAsyncSocket.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
     End Sub
 
     Public Sub SendUSearch(port As String)
@@ -1284,7 +1277,7 @@ Public Class MySSDP
                 If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.MyAuditTimer_Elapsed called with MC listener stats: bytesReceeived = " & MulticastAsyncSocket.BytesReceived.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
                 If MulticastAsyncSocket.BytesReceived = overallBytesReceivedMulticast Then
                     isTheSameCounter += 1 ' increase counter
-                    If isTheSameCounter > 30 Then
+                    If isTheSameCounter > 6 Then
                         ' this has taken too long, let's kick the socket
                         MulticastAsyncSocket.CloseSocket()
                         MyMulticastClient = MulticastAsyncSocket.ConnectSocket(MyUPnPMCastIPAddress)
@@ -1306,6 +1299,7 @@ Public Class MySSDP
                     overallBytesReceivedMulticast = MulticastAsyncSocket.BytesReceived
                     isTheSameCounter = 0
                 End If
+                SendMSearch()
             Catch ex As Exception
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.MyAuditTimer_Elapsed called and had Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             End Try
@@ -1716,6 +1710,7 @@ Public Class MyUPnPDevice
             If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MyUPnPDevice.RetrieveDeviceInfo for device = " & UniqueDeviceName & " the location is empty", LogType.LOG_TYPE_ERROR)
             Exit Sub
         End If
+        Dim beforeTime As DateTime = DateTime.Now
         Try
             Dim RequestUri = New Uri(Location)
             Dim p = ServicePointManager.FindServicePoint(RequestUri)
@@ -1726,10 +1721,13 @@ Public Class MyUPnPDevice
             webRequest.ContentLength = 0
             webRequest.Timeout = 20000 ' 5000 ' set to max of 5 seconds changed on 9/10/2019 dcor this seems to cause issues
             Dim webResponse As WebResponse = webRequest.GetResponse
+            ' dcor test
+            Dim afterTime As DateTime = DateTime.Now
+            Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
             Try
                 ApplicationURL = webResponse.Headers("Application-URL")
                 If ApplicationURL <> "" Then
-                    If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPDevice.RetrieveDeviceInfo called for device = " & UniqueDeviceName & " with location = " & Location & " retrieved Application-URL = " & ApplicationURL, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPDevice.RetrieveDeviceInfo called for device = " & UniqueDeviceName & " with location = " & Location & " after " & deltaTime.TotalMilliseconds.ToString & " milliseconds retrieved Application-URL = " & ApplicationURL, LogType.LOG_TYPE_INFO, LogColorGreen)
                 End If
             Catch ex As Exception
             End Try
@@ -1744,7 +1742,9 @@ Public Class MyUPnPDevice
             webStream.Dispose()
             webResponse = Nothing
         Catch ex As Exception
-            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MyUPnPDevice.RetrieveDeviceInfo for device = " & UniqueDeviceName & " while retrieving document with URL = " & Location & " and error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            Dim afterTime As DateTime = DateTime.Now
+            Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MyUPnPDevice.RetrieveDeviceInfo for device = " & UniqueDeviceName & " after " & deltaTime.TotalMilliseconds.ToString & " milliseconds while retrieving document with URL = " & Location & " and error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             AliveInLastScan = False
             Location = "" ' reset the location which will force a rediscovery when the next ssdp:alive event is received
             Exit Sub

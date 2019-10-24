@@ -60,39 +60,39 @@ Class MyUdpClient
 
     Sub New(localIPAddress As String, localPort As Integer)
         MyBase.New()
-        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUdpClient.new was called with localIPAddress = " & localIPAddress & ", localPort = " & localPort, LogType.LOG_TYPE_INFO)
+        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUdpClient.new was called with localIPAddress = " & myLocalIPAddress & ", localPort = " & myLocalIPPort, LogType.LOG_TYPE_INFO)
         myLocalIPAddress = localIPAddress
         myLocalIPPort = localPort
     End Sub
 
     Public Function ConnectSocket(grpAddress As String) As UdpClient
-        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUdpClient.ConnectSocket called  with localIPAddress = " & LocalIPAddress & ", local port = " & myLocalIPPort.ToString & " and groupAddress = " & grpAddress, LogType.LOG_TYPE_INFO)
+        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUdpClient.ConnectSocket called with localIPAddress = " & myLocalIPAddress & ", local port = " & myLocalIPPort.ToString & " and groupAddress = " & grpAddress, LogType.LOG_TYPE_INFO)
         mGrpAddress = grpAddress
         ConnectSocket = Nothing
         Try
             ' Bind And listen on port the specified local port. This constructor creates a socket 
             ' And binds it to the port on which to receive data. The family 
             ' parameter specifies that this connection uses an IPv4 address.
+            myUdpClient = New UdpClient() With {
+                    .ExclusiveAddressUse = False,
+                    .EnableBroadcast = True,
+                    .MulticastLoopback = True
+            }
+            myUdpClient.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 4)
+            myUdpClient.Client.SetSocketOption(Net.Sockets.SocketOptionLevel.Socket, Net.Sockets.SocketOptionName.ReuseAddress, True)
+
             If grpAddress <> "" Then
-                ' for multicasting we do call the constructer differently
-                myUdpClient = New UdpClient(myLocalIPPort, AddressFamily.InterNetwork)
-                myUdpClient.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 4)
-                ' myUdpClient.Ttl = 4
-                myUdpClient.MulticastLoopback = True
-                myUdpClient.EnableBroadcast = True
+                Dim localEP As System.Net.IPEndPoint = New IPEndPoint(IPAddress.Any, myLocalIPPort)
+                myUdpClient.Client.Bind(localEP)
             Else
                 Dim localIPAddress As IPAddress = IPAddress.Parse(myLocalIPAddress)
                 Dim localIpEndPoint As IPEndPoint = New IPEndPoint(localIPAddress, myLocalIPPort)
-                myUdpClient = New UdpClient(localIpEndPoint)
-                myUdpClient.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 4)
-                ' myUdpClient.Ttl = 4
-                myUdpClient.MulticastLoopback = True
-                myUdpClient.EnableBroadcast = True
+                myUdpClient.Client.Bind(localIpEndPoint)
             End If
             Dim ListenerEndPoint As System.Net.IPEndPoint = myUdpClient.Client.LocalEndPoint
             myLocalIPPort = ListenerEndPoint.Port
         Catch ex As Exception
-            If piDebuglevel > DebugLevel.dlOff Then Log("MyUdpClient.ConnectSocket had an error creating a UdpClient with local port = " & myLocalIPPort.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("MyUdpClient.ConnectSocket had an error creating a UdpClient with localIPAddress = " & myLocalIPAddress & ", local port = " & myLocalIPPort.ToString & " and groupAddress = " & grpAddress & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Exit Function
         End Try
         connectDone.Reset()
@@ -179,6 +179,7 @@ Class MyUdpClient
             End Try
         End Try
     End Sub
+
     Protected Overridable Sub OnReceive(e As String, ReceiveEp As System.Net.EndPoint)
         Try
             RaiseEvent DataReceived(Me, e, ReceiveEp)
@@ -186,6 +187,7 @@ Class MyUdpClient
             Log("Error in MyUdpClient.OnReceive on interface = " & myLocalIPAddress & ", port = " & myLocalIPPort.ToString & " and Error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Sub
+
     Public Function Send(ByVal data As String, remoteAddress As String, remotePort As Integer) As Boolean
         ' Convert the string data to byte data using ASCII encoding.
         If piDebuglevel > DebugLevel.dlEvents Then Log("MyUdpClient.Send called with Data = " & data & ", remote IP Address = " & remoteAddress & " and remote port = " & remotePort.ToString, LogType.LOG_TYPE_INFO)
@@ -262,6 +264,7 @@ Class MyUdpClient
         Catch ex As Exception
             If piDebuglevel > DebugLevel.dlOff Then Log("Error in MyUdpClient.CloseSocket closing a Listenener with groupAddress = " & mGrpAddress & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
+        isConnected = False ' move here to avoid error in receivecallback
         Try
             myUdpClient.Close()
         Catch ex As Exception
@@ -270,7 +273,6 @@ Class MyUdpClient
             myUdpClient.Dispose()
         Catch ex As Exception
         End Try
-        isConnected = False
         myUdpClient = Nothing
     End Sub
 
