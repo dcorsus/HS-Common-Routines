@@ -27,8 +27,9 @@ Public Class MySSDP
     Private MyUPnPMCastIPAddress As String = "239.255.255.250"
     Private MyUPnPMCastPort As Integer = 1900
     Private MyDevicesLinkedList As New MyUPnPDevices
+    Private myDiscoverPort As Integer = 0
 
-    Private MyEventListener As MyTcpListener
+    Private MyEventListener As MyTCPListener
     Private RestartListenerFlag As Boolean = False
     Private ListenerIsActive As Boolean = False
     Private RestartMulticastListenerFlag As Boolean = False
@@ -45,6 +46,7 @@ Public Class MySSDP
     Private isClosing As Boolean = False
     Private overallBytesReceivedMulticast As Integer = 0
     Private isTheSameCounter As Integer = 0
+    Private overallFailedRenewCounter As Integer = 0
 
     Public Delegate Sub NewDeviceEventHandler(UDN As String)
     Public Event NewDeviceFound As NewDeviceEventHandler
@@ -80,7 +82,7 @@ Public Class MySSDP
                 .Enabled = True
             }
         Catch ex As Exception
-            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.New. Unable to create the audit timer with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.New. Unable to create the audit timer with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         Try
             CreateMulticastListener()
@@ -91,6 +93,7 @@ Public Class MySSDP
 
     Public Sub Dispose()
         ' this disposes all devices and services as part of Parent SSDP
+        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.Dispose called for PlugInIPAddress = " & PlugInIPAddress, LogType.LOG_TYPE_INFO)
         isClosing = True
         Try
             If MyControllerTimer IsNot Nothing Then MyControllerTimer.Enabled = False
@@ -159,7 +162,7 @@ Public Class MySSDP
 
     Public Sub CreateMulticastListener(Optional alsoTCPListener As Boolean = True)
         ' this creates the permanent listening port for ssdp messages such as ssdp:alive and ssdp:byebye
-        If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.CreateMulticastListener called for PlugInIPAddress = " & PlugInIPAddress, LogType.LOG_TYPE_INFO) ' dcor level
+        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.CreateMulticastListener called for PlugInIPAddress = " & PlugInIPAddress, LogType.LOG_TYPE_INFO)
         If MulticastAsyncSocket Is Nothing Then
             Try
                 MulticastAsyncSocket = New MyUdpClient(MyUPnPMCastIPAddress, MyUPnPMCastPort)
@@ -203,7 +206,7 @@ Public Class MySSDP
     Public Sub HandleMCastSocketCloseEvent(sender As Object)
         ' this is the event handler for the "regular" multicast listener, NOT the SSDP - discovery initiated listener. If this terminates, restart it by setting the restartlistener flag
         If isClosing Then Exit Sub
-        If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.HandleMCastSocketCloseEvent received Close Socket Event. Will try to restart", LogType.LOG_TYPE_ERROR)
+        If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.HandleMCastSocketCloseEvent received Close Socket Event. Will try to restart", LogType.LOG_TYPE_ERROR)
         ' we close the ssdpsocket here, will be restarted with next call to DoSSDPDiscovery
         Try
             ' RaiseEvent MCastDiedEvent() ' removed in v19
@@ -229,12 +232,12 @@ Public Class MySSDP
 
     Public Function RemoveDevices(UDN As String) As Boolean
         RemoveDevices = False
-        If UPnPDebuglevel > DebugLevel.dlOff Then Log("MySSDP.RemoveDevices called with UDN = " & UDN, LogType.LOG_TYPE_INFO, LogColorGreen)
+        If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.RemoveDevices called with UDN = " & UDN, LogType.LOG_TYPE_INFO, LogColorGreen)
         Dim DeviceToRemove As MyUPnPDevice = MyDevicesLinkedList.Item(UDN, True)
         If DeviceToRemove IsNot Nothing Then
             Try
                 If Not MyDevicesLinkedList.RemoveDevice(DeviceToRemove, UDN) Then
-                    If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.RemoveDevices. Device with UDN = " & UDN & " was not removed successfully", LogType.LOG_TYPE_ERROR)
+                    If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.RemoveDevices. Device with UDN = " & UDN & " was not removed successfully", LogType.LOG_TYPE_ERROR)
                 Else
                     RemoveDevices = True
                 End If
@@ -246,7 +249,7 @@ Public Class MySSDP
 #Region "SSDP"
 
     Public Sub HandleSSDPDataReceived(sender As Object, e As String, ReceiveEP As System.Net.EndPoint)
-        If UPnPDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.HandleSSDPDataReceived received Line = " & e & " and EP = " & ReceiveEP.ToString, LogType.LOG_TYPE_INFO, LogColorNavy)
+        If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.HandleSSDPDataReceived received Line = " & e & " and EP = " & ReceiveEP.ToString, LogType.LOG_TYPE_INFO, LogColorNavy)
         'If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("HandleSSDPDataReceived received Line.length = " & e.Length, LogType.LOG_TYPE_WARNING, LogColorNavy) 
         'If UPnPDebuglevel > DebugLevel.dlOff Then Log("MySSDP.HandleSSDPDataReceived received Line = " & e & " and EP = " & ReceiveEP.ToString, LogType.LOG_TYPE_INFO, LogColorNavy) 
         Try
@@ -255,7 +258,7 @@ Public Class MySSDP
             End SyncLock
             MyNotifyTimer.Enabled = True
         Catch ex As Exception
-            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.HandleSSDPDataReceived queuing the Notification = " & e.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_INFO)
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.HandleSSDPDataReceived queuing the Notification = " & e.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_INFO)
         End Try
         sender = Nothing
         e = Nothing
@@ -271,12 +274,12 @@ Public Class MySSDP
 
     Private Sub TreatNotficationQueue()
         If NotificationHandlerReEntryFlag Then
-            If UPnPDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue has Re-Entry while processing Notification queue with # elements = " & MyNotificationQueue.Count.ToString, LogType.LOG_TYPE_WARNING)
+            If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue has Re-Entry while processing Notification queue with # elements = " & MyNotificationQueue.Count.ToString, LogType.LOG_TYPE_WARNING)
             MissedNotificationHandlerFlag = True
             Exit Sub
         End If
         NotificationHandlerReEntryFlag = True
-        If UPnPDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue is processing Notification queue with # elements = " & MyNotificationQueue.Count.ToString, LogType.LOG_TYPE_INFO)
+        If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue is processing Notification queue with # elements = " & MyNotificationQueue.Count.ToString, LogType.LOG_TYPE_INFO)
         'If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("TreatNotficationQueue is processing Notification queue with # elements = " & MyNotificationQueue.Count.ToString, LogType.LOG_TYPE_INFO, LogColorGreen) 
         Dim NotificationEvent As String = ""
 
@@ -289,7 +292,7 @@ Public Class MySSDP
                 End SyncLock
                 NbrOfMessageCounter += 1
                 'If UPnPDebuglevel > DebugLevel.dlOff Then Log("MySSDP.TreatNotficationQueue is processing Notification Event Nbr = " & NbrOfMessageCounter.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue is processing Notification = " & NotificationEvent, LogType.LOG_TYPE_INFO, LogColorGreen)
+                If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue is processing Notification = " & NotificationEvent, LogType.LOG_TYPE_INFO, LogColorGreen)
                 Try
                     Dim Header As String = ParseSsdpResponse(NotificationEvent, "") ' calling this procedure with empty parameter returns the first line in the response
                     Dim URI As String = ParseSsdpResponse(NotificationEvent, "location")
@@ -321,11 +324,11 @@ Public Class MySSDP
                             If UBound(USNParts, 1) >= 0 Then
                                 UDN = Trim(USNParts(0))
                                 If UDN = "" Then
-                                    If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue retrieved invalid UDN with Data = " & NotificationEvent, LogType.LOG_TYPE_WARNING)
+                                    If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue retrieved invalid UDN with Data = " & NotificationEvent, LogType.LOG_TYPE_WARNING)
                                     Exit Try   ' ignore this, wrong UDN
                                 End If
                                 If UDN.IndexOf("uuid:") <> 0 Then
-                                    If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue retrieved invalid UDN with Data = " & NotificationEvent, LogType.LOG_TYPE_WARNING)
+                                    If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue retrieved invalid UDN with Data = " & NotificationEvent, LogType.LOG_TYPE_WARNING)
                                     Exit Try   ' ignore this, wrong UDN
                                 End If
                                 Mid(UDN, 1, 5) = "     "
@@ -340,24 +343,24 @@ Public Class MySSDP
                         USNParts = Nothing
                     End If
 
-                    If UPnPDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue retrieved URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Cache-Control = " & CacheControl, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue retrieved URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Cache-Control = " & CacheControl, LogType.LOG_TYPE_INFO, LogColorGreen)
 
                     ' If ST = upnp:rootdevice is present, then this was part of an SSDP discovery, else NTS will be present with either ssdp:alive or ssdp:byebye
                     If Header = "M-SEARCH" Then
                         NbrOfSearchMessageCounter += 1
                         ' do nothing, this is a discovery call from other UPNP controllers on the network
                         ' maybe for future use if I want to become a UPNP Server
-                        If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue received M-Search info = " & NotificationEvent & " From = " & ReceiveEP, LogType.LOG_TYPE_INFO, LogColorGreen)
+                        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue received M-Search info = " & NotificationEvent & " From = " & ReceiveEP, LogType.LOG_TYPE_INFO, LogColorGreen)
                         Try
                             RaiseEvent MSearchEvent(NotificationEvent)
                         Catch ex As Exception
-                            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue while generating MSearchEvent with Info = " & NotificationEvent & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue while generating MSearchEvent with Info = " & NotificationEvent & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                         End Try
                     ElseIf Header = "HTTP" And ST = UPNPMonitoringDevice Then '"upnp:rootdevice" Then
                         NbrOfHTTPMessageCounter += 1
                         If Not MyDevicesLinkedList.CheckDeviceExists(UDN) Then
                             Dim NewDevice As MyUPnPDevice
-                            If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue is adding rootdevice with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Cache-Control = " & CacheControl, LogType.LOG_TYPE_INFO, LogColorGreen)
+                            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue is adding rootdevice with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Cache-Control = " & CacheControl, LogType.LOG_TYPE_INFO, LogColorGreen)
                             NewDevice = MyDevicesLinkedList.AddDevice(UDN, URI, True, Me)
                             If NewDevice IsNot Nothing Then
                                 If NewDevice.Location <> "" Then
@@ -375,10 +378,10 @@ Public Class MySSDP
                                     NewDevice.NotificationEvent = NotificationEvent
                                     If SearchPort <> "" Then NewDevice.SearchPort = SearchPort
                                     NewDevice.RootDevice = NewDevice
-                                    If UPnPDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue retrieved IPInfo with IPAddress =  " & NewDevice.IPAddress & " and IPPort = " & NewDevice.IPPort & " and Location = " & NewDevice.Location, LogType.LOG_TYPE_INFO, LogColorGreen)
+                                    If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue retrieved IPInfo with IPAddress =  " & NewDevice.IPAddress & " and IPPort = " & NewDevice.IPPort & " and Location = " & NewDevice.Location, LogType.LOG_TYPE_INFO, LogColorGreen)
                                 End If
                             Else
-                                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue for device = " & NewDevice.UniqueDeviceName & ". Could not add the device to our list with Data = " & NotificationEvent, LogType.LOG_TYPE_ERROR)
+                                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue for device = " & NewDevice.UniqueDeviceName & ". Could not add the device to our list with Data = " & NotificationEvent, LogType.LOG_TYPE_ERROR)
                             End If
                             NewDevice = Nothing
                         Else
@@ -413,19 +416,19 @@ Public Class MySSDP
                                 If SearchPort <> "" Then ExistingDevice.SearchPort = SearchPort
                             Else
                                 ' this should never be
-                                If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue for discovered UUID = " & UDN & ". Could not find the device to our list with Data = " & NotificationEvent, LogType.LOG_TYPE_ERROR)
+                                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue for discovered UUID = " & UDN & ". Could not find the device to our list with Data = " & NotificationEvent, LogType.LOG_TYPE_ERROR)
                             End If
                             ExistingDevice = Nothing
                         End If
                     ElseIf Header = "NOTIFY" And NTS = "ssdp:alive" Then
                         NbrOfNotifyAliveMessageCounter += 1
                         ' Is sent once with upnp:rootdevice for the root device, sent once in uuid:device-uuid for each device root or embedded
-                        If UPnPDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue received ssdp:alive with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", NTType = " & NTType.ToString & " and USN = " & USN.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                        If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue received ssdp:alive with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", NTType = " & NTType.ToString & " and USN = " & USN.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
                         Select Case NTType
                             Case MySSDP.NTtype.NTTypeRootDevice
                                 If UPNPMonitoringDevice = "upnp:rootdevice" Then
                                     If Not MyDevicesLinkedList.CheckDeviceExists(UDN) Then
-                                        If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue received ssdp:alive and is adding device with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Cache-Control = " & CacheControl, LogType.LOG_TYPE_INFO, LogColorGreen)
+                                        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue received ssdp:alive and is adding device with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Cache-Control = " & CacheControl, LogType.LOG_TYPE_INFO, LogColorGreen)
                                         Dim NewDevice As MyUPnPDevice
                                         NewDevice = MyDevicesLinkedList.AddDevice(UDN, URI, True, Me) ' will also force device discovery and processing
                                         If NewDevice IsNot Nothing Then
@@ -445,10 +448,10 @@ Public Class MySSDP
                                                 If SearchPort <> "" Then NewDevice.SearchPort = SearchPort
                                                 NewDevice.RootDevice = NewDevice
                                                 ' NewDevice.Alive = True still need to retrieve device info
-                                                If UPnPDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue retrieved IPInfo with IPAddress =  " & NewDevice.IPAddress & " and IPPort = " & NewDevice.IPPort & " and Location = " & NewDevice.Location, LogType.LOG_TYPE_INFO, LogColorGreen)
+                                                If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue retrieved IPInfo with IPAddress =  " & NewDevice.IPAddress & " and IPPort = " & NewDevice.IPPort & " and Location = " & NewDevice.Location, LogType.LOG_TYPE_INFO, LogColorGreen)
                                             End If
                                         Else
-                                            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue for device = " & NewDevice.UniqueDeviceName & ". Could not add the device to our list with Data = " & NotificationEvent, LogType.LOG_TYPE_ERROR)
+                                            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue for device = " & NewDevice.UniqueDeviceName & ". Could not add the device to our list with Data = " & NotificationEvent, LogType.LOG_TYPE_ERROR)
                                         End If
                                         NewDevice = Nothing
                                     Else
@@ -482,7 +485,7 @@ Public Class MySSDP
                                             ExistingDevice.NotificationEvent = NotificationEvent
                                         Else
                                             ' this should never be
-                                            If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue for alive UUID = " & UDN & ". Could not find the device to our list with Data = " & NotificationEvent, LogType.LOG_TYPE_ERROR)
+                                            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue for alive UUID = " & UDN & ". Could not find the device to our list with Data = " & NotificationEvent, LogType.LOG_TYPE_ERROR)
                                         End If
                                         ExistingDevice = Nothing
                                     End If
@@ -492,7 +495,7 @@ Public Class MySSDP
                             Case MySSDP.NTtype.NTTypeDevice, MySSDP.NTtype.NTTypeURNDevice
                                 'Log("TreatNotficationQueue for ssdp:alive found for type device or type urndevice = " & NT & " ST = " & ST & " with UDN = " & UDN, LogType.LOG_TYPE_WARNING)
                                 If NT = UPNPMonitoringDevice And UPNPMonitoringDevice <> "upnp:rootdevice" And Not MyDevicesLinkedList.CheckDeviceExists(UDN) Then
-                                    If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue received ssdp:alive and is adding device with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Cache-Control = " & CacheControl, LogType.LOG_TYPE_INFO, LogColorGreen)
+                                    If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue received ssdp:alive and is adding device with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Cache-Control = " & CacheControl, LogType.LOG_TYPE_INFO, LogColorGreen)
                                     Dim NewDevice As MyUPnPDevice
                                     NewDevice = MyDevicesLinkedList.AddDevice(UDN, URI, True, Me)
                                     If NewDevice IsNot Nothing Then
@@ -512,17 +515,17 @@ Public Class MySSDP
                                             If SearchPort <> "" Then NewDevice.SearchPort = SearchPort
                                             NewDevice.RootDevice = NewDevice
                                             ' NewDevice.Alive = True still need to retrieve device info
-                                            If UPnPDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue retrieved IPInfo with IPAddress =  " & NewDevice.IPAddress & " and IPPort = " & NewDevice.IPPort & " and Location = " & NewDevice.Location, LogType.LOG_TYPE_INFO, LogColorGreen)
+                                            If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue retrieved IPInfo with IPAddress =  " & NewDevice.IPAddress & " and IPPort = " & NewDevice.IPPort & " and Location = " & NewDevice.Location, LogType.LOG_TYPE_INFO, LogColorGreen)
                                         End If
                                     Else
-                                        If UPnPDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue for device = " & NewDevice.UniqueDeviceName & ". Could not add the device to our list with Data = " & NotificationEvent, LogType.LOG_TYPE_ERROR)
+                                        If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.TreatNotficationQueue for device = " & NewDevice.UniqueDeviceName & ". Could not add the device to our list with Data = " & NotificationEvent, LogType.LOG_TYPE_ERROR)
                                     End If
                                     NewDevice = Nothing
                                 Else
                                     Dim ExistingDevice As MyUPnPDevice = Nothing
                                     ExistingDevice = Me.Item(GetDeviceFromNT(NT, UDN), True)
                                     If ExistingDevice IsNot Nothing Then
-                                        If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue for ssdp:alive found matching NT = " & NT & " with UDN = " & UDN & " and URI = " & URI, LogType.LOG_TYPE_INFO, LogColorNavy)
+                                        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue for ssdp:alive found matching NT = " & NT & " with UDN = " & UDN & " and URI = " & URI, LogType.LOG_TYPE_INFO, LogColorNavy)
                                         Dim IPInfo As IPAddressInfo
                                         IPInfo = ExtractIPInfo(URI)
                                         ExistingDevice.IPAddress = IPInfo.IPAddress
@@ -560,7 +563,7 @@ Public Class MySSDP
                                 End If
                             Case MySSDP.NTtype.NTTypeURNService
                                 If MyDevicesLinkedList.CheckDeviceExists(UDN) Then
-                                    If UPnPDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue received ssdp:alive and is checking if service was known with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Info = " & NotificationEvent, LogType.LOG_TYPE_INFO, LogColorGreen)
+                                    If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue received ssdp:alive and is checking if service was known with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Info = " & NotificationEvent, LogType.LOG_TYPE_INFO, LogColorGreen)
                                     Dim ExistingDevice As MyUPnPDevice = Nothing
                                     ExistingDevice = Me.Item(GetDeviceFromNT(NT, UDN), True)
                                     If ExistingDevice IsNot Nothing Then
@@ -601,6 +604,7 @@ Public Class MySSDP
                                     End If
                                 Else
                                     ' there is no device known yet, this could be a timing thing or an issue. Generate a log entry
+                                    ' 11/5/2019 actually if a device a child devices, you get here, may have to do something here 
                                     If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue received ssdp:alive for a service but the device UDN is unknown at this point. URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & ", ST = " & ST.ToString & " and USN = " & USN.ToString & " Info = " & NotificationEvent, LogType.LOG_TYPE_INFO, LogColorOrange)
                                 End If
                                 'End If
@@ -619,9 +623,9 @@ Public Class MySSDP
                                     ExistingDevice = Me.Item(GetDeviceFromNT(NT, UDN))
                                 End If
                             Case MySSDP.NTtype.NTTypeURNService
-                                'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue received byebye for a service with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & " and USN = " & USN.ToString, LogType.LOG_TYPE_WARNING)
+                                'If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MySSDP.TreatNotficationQueue received byebye for a service with URI = " & URI.ToString & ", NTS = " & NTS & ", NT = " & NT.ToString & " and USN = " & USN.ToString, LogType.LOG_TYPE_WARNING)
                                 'Dim ServiceID = GetServiceFromNT(NT)
-                                'If piDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue received byebye for a service  = " & ServiceID, LogType.LOG_TYPE_INFO)
+                                'If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.TreatNotficationQueue received byebye for a service  = " & ServiceID, LogType.LOG_TYPE_INFO)
                                 ExistingDevice = Me.Item("uuid:" & UDN, True)
                                 If ExistingDevice IsNot Nothing Then
                                     If ExistingDevice.Services IsNot Nothing Then
@@ -693,6 +697,7 @@ Public Class MySSDP
 
         StartSSDPDiscovery = Nothing
         UPNPMonitoringDevice = UPnPDeviceToLookFor
+        myDiscoverPort = discoverPort
 
         If SSDPAsyncSocket Is Nothing Then
             Try
@@ -716,10 +721,6 @@ Public Class MySSDP
             If MySSDPClient Is Nothing Then
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartSSDPDiscovery. No Client!", LogType.LOG_TYPE_ERROR)
                 Exit Function
-            Else
-                MySSDPClient.EnableBroadcast = True
-                MySSDPClient.Ttl = 4
-                MySSDPClient.MulticastLoopback = True
             End If
             Try
                 SSDPAsyncSocket.Receive()
@@ -749,10 +750,6 @@ Public Class MySSDP
             If MySSDPClientLoopback Is Nothing Then
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartSSDPDiscovery. No Loopback Client!", LogType.LOG_TYPE_ERROR)
                 Exit Function
-            Else
-                MySSDPClientLoopback.EnableBroadcast = True
-                MySSDPClientLoopback.Ttl = 4
-                MySSDPClientLoopback.MulticastLoopback = True
             End If
             Try
                 SSDPAsyncSocketLoopback.Receive()
@@ -849,7 +846,36 @@ Public Class MySSDP
     End Function
 
     Public Sub SendMSearch()
-        'SSDPAsyncSocket.response = ""
+        If SSDPAsyncSocket Is Nothing Then
+            Try
+                SSDPAsyncSocket = New MyUdpClient(PlugInIPAddress, myDiscoverPort)
+            Catch ex As Exception
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.SendMSearch unable to create a Multicast Socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                Exit Sub
+            End Try
+            If SSDPAsyncSocket Is Nothing Then
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.SendMSearch. No AsyncSocket!", LogType.LOG_TYPE_ERROR)
+                Exit Sub
+            End If
+            AddHandler SSDPAsyncSocket.DataReceived, AddressOf HandleSSDPDataReceived
+            Try
+                MySSDPClient = SSDPAsyncSocket.ConnectSocket("") 'by passing a zero string, I indicate no need to join any multicast groups. This is just a listener for SSDP discovery responses
+            Catch ex As Exception
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.SendMSearch unable to connect Socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                Exit Sub
+            End Try
+            If MySSDPClient Is Nothing Then
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.SendMSearch. No Client!", LogType.LOG_TYPE_ERROR)
+                Exit Sub
+            End If
+            Try
+                SSDPAsyncSocket.Receive()
+            Catch ex As Exception
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.SendMSearch for UPnPDevice = " & "" & " unable to receive data to Socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            End Try
+        End If
+
+        SSDPAsyncSocket.response = ""
         Dim postData As String = ""
         postData = "M-SEARCH * HTTP/1.1" & vbCrLf
         postData &= "HOST: 239.255.255.250:1900" & vbCrLf
@@ -858,7 +884,22 @@ Public Class MySSDP
         postData &= "MX: 4" & vbCrLf
         postData &= "" & vbCrLf
         If upnpDebuglevel > DebugLevel.dlEvents Then Log("MySSDP.SendMSearch Sending M-Search for " & UPNPMonitoringDevice, LogType.LOG_TYPE_INFO, LogColorGreen)
-        If MulticastAsyncSocket IsNot Nothing Then MulticastAsyncSocket.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
+        If SSDPAsyncSocket IsNot Nothing Then SSDPAsyncSocket.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
+        wait(30)
+
+        Try
+            If SSDPAsyncSocket IsNot Nothing Then
+                Try
+                    RemoveHandler SSDPAsyncSocket.DataReceived, AddressOf HandleSSDPDataReceived
+                    RemoveHandler SSDPAsyncSocket.UdpSocketClosed, AddressOf HandleSSDPUdpSocketCloseEvent
+                Catch ex As Exception
+                End Try
+                SSDPAsyncSocket.CloseSocket()
+                SSDPAsyncSocket = Nothing
+            End If
+        Catch ex As Exception
+        End Try
+
     End Sub
 
     Public Sub SendUSearch(port As String)
@@ -1178,7 +1219,7 @@ Public Class MySSDP
         Dim returnPort As Integer = 0
         If MyEventListener Is Nothing Then
             Try
-                MyEventListener = New MyTcpListener
+                MyEventListener = New MyTCPListener
                 returnPort = MyEventListener.Start(PlugInIPAddress, port)
                 If returnPort = 0 Then
                     ' this is an unsuccesfull start of a listener
@@ -1191,7 +1232,7 @@ Public Class MySSDP
                 AddHandler MyEventListener.recOK, AddressOf HandleEventReceive
                 AddHandler MyEventListener.DataReceived, AddressOf HandleDataReceive
             Catch ex As Exception
-                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartEventListener with port = " & port & " for Instance = " & MainInstance & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartEventListener on interface = " & PlugInIPAddress & " and port = " & port & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                 StopListener()
                 RestartListenerFlag = True
                 Return False
@@ -1207,13 +1248,13 @@ Public Class MySSDP
                 End If
                 TCPListenerPort = returnPort
             Catch ex As Exception
-                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartEventListener with port = " & port & " for Instance = " & MainInstance & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MySSDP.StartEventListener on interface = " & PlugInIPAddress & " and port = " & port & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                 StopListener()
                 RestartListenerFlag = True
                 Return False
             End Try
         End If
-        If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.StartEventListener started listening on port = " & TCPListenerPort, LogType.LOG_TYPE_INFO)
+        If upnpDebuglevel > DebugLevel.dlOff Then Log("MySSDP.StartEventListener started listening on interface = " & PlugInIPAddress & " and port = " & TCPListenerPort, LogType.LOG_TYPE_INFO)
         Return True
     End Function
 
@@ -1252,6 +1293,7 @@ Public Class MySSDP
     End Sub
 
 #End Region
+
     Private Sub MyControllerTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles MyControllerTimer.Elapsed
         Try
             If RestartListenerFlag Then
@@ -1271,6 +1313,12 @@ Public Class MySSDP
     End Sub
 
     Private Sub MyAuditTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles myAuditTimer.Elapsed
+
+        If Not IsEthernetPortAlive(PlugInIPAddress) Then
+            If upnpDebuglevel > DebugLevel.dlEvents Then Log("Error in MySSDP.MyAuditTimer_Elapsed!! The Ethernet interface provide by HS = " & PlugInIPAddress & " is down !!!", LogType.LOG_TYPE_INFO, LogColorGreen)
+            GetEthernetPorts()
+        End If
+
         ' added 10/14/2019 to deal with multicast listener going out to lunch
         If MulticastAsyncSocket IsNot Nothing Then
             Try
@@ -1283,6 +1331,7 @@ Public Class MySSDP
                         MyMulticastClient = MulticastAsyncSocket.ConnectSocket(MyUPnPMCastIPAddress)
                         If MyMulticastClient Is Nothing Then
                             ' remove and retry from beginning!      ' added 10/21/2019
+
                             HandleMCastSocketCloseEvent(Nothing)
                             overallBytesReceivedMulticast = 0
                             isTheSameCounter = 0
@@ -1351,6 +1400,7 @@ Public Class MyUPnPDevice
     Public WakeUp As String = ""
     Public SSID As String = ""
     Public NotificationEvent As String = ""
+    Private retrieveDeviceInfoReentrancyFlag As Boolean = False
 
     Friend WithEvents MySubscribeRenewTimer As Timers.Timer
     Friend WithEvents MyRetrieveDeviceInfoTimer As Timers.Timer
@@ -1486,6 +1536,7 @@ Public Class MyUPnPDevice
             If MyRetrieveDeviceInfoTimer IsNot Nothing Then
                 MyRetrieveDeviceInfoTimer.Enabled = False
                 MyRetrieveDeviceInfoTimer.Stop()
+                MyRetrieveDeviceInfoTimer.Dispose()
                 MyRetrieveDeviceInfoTimer = Nothing
             End If
         Catch ex As Exception
@@ -1506,7 +1557,7 @@ Public Class MyUPnPDevice
     End Sub
 
     Public Sub Dispose(RemoveSelf As Boolean)
-        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPDevice.Dispose called for for UDN = " & UniqueDeviceName & " and RemoveSelf = " & RemoveSelf.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPDevice.Dispose called for UDN = " & UniqueDeviceName & " and RemoveSelf = " & RemoveSelf.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
         AliveInLastScan = False
         Location = ""
         ApplicationURL = ""
@@ -1541,23 +1592,7 @@ Public Class MyUPnPDevice
         End Try
         DeviceDiedHandlerAddress = Nothing
         DeviceAliveHandlerAddress = Nothing
-
-        Try
-            If MySubscribeRenewTimer IsNot Nothing Then
-                MySubscribeRenewTimer.Enabled = False
-                MySubscribeRenewTimer.Stop()
-                MySubscribeRenewTimer = Nothing
-            End If
-        Catch ex As Exception
-        End Try
-        Try
-            If MyRetrieveDeviceInfoTimer IsNot Nothing Then
-                MyRetrieveDeviceInfoTimer.Enabled = False
-                MyRetrieveDeviceInfoTimer.Stop()
-                MyRetrieveDeviceInfoTimer = Nothing
-            End If
-        Catch ex As Exception
-        End Try
+        StopTimers()
         Try
             If Children IsNot Nothing Then
                 Children.Dispose()
@@ -1589,23 +1624,7 @@ Public Class MyUPnPDevice
         AliveInLastScan = False
         'ParentDevice = Nothing
         'RootDevice = Nothing
-
-        Try
-            If MySubscribeRenewTimer IsNot Nothing Then
-                MySubscribeRenewTimer.Enabled = False
-                MySubscribeRenewTimer.Stop()
-                MySubscribeRenewTimer = Nothing
-            End If
-        Catch ex As Exception
-        End Try
-        Try
-            If MyRetrieveDeviceInfoTimer IsNot Nothing Then
-                MyRetrieveDeviceInfoTimer.Enabled = False
-                MyRetrieveDeviceInfoTimer.Stop()
-                MyRetrieveDeviceInfoTimer = Nothing
-            End If
-        Catch ex As Exception
-        End Try
+        StopTimers()
         Try
             If Children IsNot Nothing Then
                 Children.Dispose()
@@ -1621,9 +1640,30 @@ Public Class MyUPnPDevice
         Catch ex As Exception
         End Try
         Services = Nothing
-
     End Sub
 
+    Private Sub StopTimers()
+        Try
+            If MySubscribeRenewTimer IsNot Nothing Then
+                MySubscribeRenewTimer.Enabled = False
+                MySubscribeRenewTimer.Stop()
+                MySubscribeRenewTimer.Dispose()
+
+            End If
+        Catch ex As Exception
+        End Try
+        MySubscribeRenewTimer = Nothing
+        Try
+            If MyRetrieveDeviceInfoTimer IsNot Nothing Then
+                MyRetrieveDeviceInfoTimer.Enabled = False
+                MyRetrieveDeviceInfoTimer.Stop()
+                MyRetrieveDeviceInfoTimer.Dispose()
+
+            End If
+        Catch ex As Exception
+        End Try
+        MyRetrieveDeviceInfoTimer = Nothing
+    End Sub
 
     Public Function CheckForUpdates(inLocation As String, inUDN As String, inRef As MySSDP) As Boolean
         CheckForUpdates = False
@@ -1704,24 +1744,25 @@ Public Class MyUPnPDevice
     End Function
 
     Private Sub RetrieveDeviceInfo()
-        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPDevice.RetrieveDeviceInfo called for device = " & UniqueDeviceName & " with location = " & Location, LogType.LOG_TYPE_INFO, LogColorGreen)
+        If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyUPnPDevice.RetrieveDeviceInfo called for device = " & UniqueDeviceName & " with location = " & Location & " and reentrancy = " & retrieveDeviceInfoReentrancyFlag.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
         Dim PageHTML As String = ""
         If Location = "" Then
             If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MyUPnPDevice.RetrieveDeviceInfo for device = " & UniqueDeviceName & " the location is empty", LogType.LOG_TYPE_ERROR)
             Exit Sub
         End If
+        If retrieveDeviceInfoReentrancyFlag Then Exit Sub  ' added 11/12/2019
+        retrieveDeviceInfoReentrancyFlag = True
         Dim beforeTime As DateTime = DateTime.Now
         Try
             Dim RequestUri = New Uri(Location)
-            Dim p = ServicePointManager.FindServicePoint(RequestUri)
-            p.Expect100Continue = False
+            'Dim p = ServicePointManager.FindServicePoint(RequestUri) ' removed 11/10/2019
+            'p.Expect100Continue = False
             Dim webRequest As HttpWebRequest = DirectCast(System.Net.HttpWebRequest.Create(RequestUri), HttpWebRequest) ' HttpWebRequest.Create(RequestUri)
             webRequest.Method = "GET"
             webRequest.KeepAlive = False
             webRequest.ContentLength = 0
-            webRequest.Timeout = 20000 ' 5000 ' set to max of 5 seconds changed on 9/10/2019 dcor this seems to cause issues
+            webRequest.Timeout = 20000 ' 5000 ' set to max of 5 seconds changed on 9/10/2019 
             Dim webResponse As WebResponse = webRequest.GetResponse
-            ' dcor test
             Dim afterTime As DateTime = DateTime.Now
             Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
             Try
@@ -1731,7 +1772,6 @@ Public Class MyUPnPDevice
                 End If
             Catch ex As Exception
             End Try
-            '  webRequest.Timeout = 5000 ' set to max of 5 seconds moved before call on 9/10/2019
             Dim webStream As Stream = webResponse.GetResponseStream
             Dim strmRdr As New System.IO.StreamReader(webStream)
             PageHTML = strmRdr.ReadToEnd()
@@ -1747,12 +1787,14 @@ Public Class MyUPnPDevice
             If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MyUPnPDevice.RetrieveDeviceInfo for device = " & UniqueDeviceName & " after " & deltaTime.TotalMilliseconds.ToString & " milliseconds while retrieving document with URL = " & Location & " and error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             AliveInLastScan = False
             Location = "" ' reset the location which will force a rediscovery when the next ssdp:alive event is received
+            retrieveDeviceInfoReentrancyFlag = False
             Exit Sub
         End Try
         PageHTML = RemoveControlCharacters(PageHTML)
         If PageHTML.ToUpper.Trim(" ") = "STATUS=OK" Then ' added 04/15/2018 
             AliveInLastScan = True
             FriendlyName = "Unknown"
+            retrieveDeviceInfoReentrancyFlag = False
             Exit Sub
         End If
         If ProcessDeviceInfo(Me, PageHTML, True) Then
@@ -1762,7 +1804,8 @@ Public Class MyUPnPDevice
             Location = "" ' reset the location which will force a rediscovery when the next ssdp:alive event is received
             AliveInLastScan = False
         End If
-
+        If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyUPnPDevice.RetrieveDeviceInfo done for device = " & UniqueDeviceName & " with location = " & Location, LogType.LOG_TYPE_INFO, LogColorGreen)
+        retrieveDeviceInfoReentrancyFlag = False
     End Sub
 
     Private Function ProcessDeviceInfo(ByRef NewDevice As MyUPnPDevice, inXML As String, IsRoot As Boolean) As Boolean
@@ -2072,10 +2115,10 @@ Public Class MyUPnPDevice
                             If FirstURL = "" Then FirstURL = URL
                             If mimeType = EncodeingFormat And Width = SizeX And Height = SizeY And depth = BitDepth Then
                                 IconURL = MakeURLWhole(URL)
-                                'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("IconURL got IconURL = " & "http://" & IPAddress & ":" & IPPort & URL, LogType.LOG_TYPE_INFO)
+                                'If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("IconURL got IconURL = " & "http://" & IPAddress & ":" & IPPort & URL, LogType.LOG_TYPE_INFO)
                                 Exit Property
                             End If
-                            'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("IconURL didn't match Icon with EncodeingFormat = " & mimeType & ", SizeX = " & Width.ToString & ", SizeY = " & Height.ToString & ", BitDepth = " & depth.ToString, LogType.LOG_TYPE_WARNING)
+                            'If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("IconURL didn't match Icon with EncodeingFormat = " & mimeType & ", SizeX = " & Width.ToString & ", SizeY = " & Height.ToString & ", BitDepth = " & depth.ToString, LogType.LOG_TYPE_WARNING)
                         End If
                     Catch ex As Exception
                         If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in get MyUPnPDevice.IconURL for UDN = " & UniqueDeviceName & " for EncodeingFormat = " & EncodeingFormat & ", SizeX = " & SizeX.ToString & ", SizeY = " & SizeY.ToString & ", BitDepth = " & BitDepth.ToString & "with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -2145,7 +2188,6 @@ Public Class MyUPnPDevice
 
     Private Sub MyRetrieveDeviceInfoTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles MyRetrieveDeviceInfoTimer.Elapsed
         If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyUPnPDevice.MyRetrieveDeviceInfoTimer_Elapsed called for UDN = " & UniqueDeviceName, LogType.LOG_TYPE_INFO, LogColorGreen)
-        'If UPnPDebuglevel > DebugLevel.dlOff Then Log("MyUPnPDevice.MyRetrieveDeviceInfoTimer_Elapsed called for UDN = " & UniqueDeviceName, LogType.LOG_TYPE_INFO, LogColorGreen)
         Try
             RetrieveDeviceInfo()
         Catch ex As Exception
@@ -2198,6 +2240,8 @@ Public Class MyUPnPDevices
     Inherits List(Of MyUPnPDevice)
 
     Public Function AddDevice(UDN As String, Location As String, DoDocumentRetrieval As Boolean, inRef As MySSDP) As MyUPnPDevice
+        If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyUPnPDevices.AddDevice called with UDN = " & UDN & " and Location = " & Location & ". Devices list count = " & MyBase.Count.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+
         AddDevice = Nothing
         If UDN = "" Then
             If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MyUPnPDevices.AddDevice when called with No UDN = " & UDN & " and Location = " & Location, LogType.LOG_TYPE_ERROR)
@@ -2300,7 +2344,7 @@ Public Class MyUPnPService
     Public ServiceStateTable As New MyServiceStateTable
     Public ActionList As New MyactionList
     Private MyUPNPClient As Socket
-    Public MyServiceActive As Boolean = False
+
     Private MyIPAddress As String = ""
     Private MyIPPort As String = ""
     Private MyDeviceUDN As String = ""
@@ -2310,6 +2354,12 @@ Public Class MyUPnPService
     Public NotificationEvent As String = ""
     Private mySubscribeRenewCounter As Integer = 0
     Private myBootId As String = ""
+
+    ' this is new as of Sonosv4 to further enhance debugging
+    Public hasServiceXMLRetrieved As Boolean = False
+    Public hasServiceStateRetrieved As Boolean = False
+    Public hasActionListRetrieved As Boolean = False
+    Public isServiceEventsSubscribed As Boolean = False
 
     Public Delegate Sub StateChangeEventHandler(StateVarName As String, Value As String)
     Public Event StateChange As StateChangeEventHandler
@@ -2334,7 +2384,7 @@ Public Class MyUPnPService
 
     Public Sub New(DeviceUDN As String, ServiceXML As String, DeviceURL As String, MasterdeviceReference As MyUPnPDevice)
         MyBase.New()
-        'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.new called with Service XML = " & ServiceXML & " and DeviceURL =  " & DeviceURL, LogType.LOG_TYPE_INFO)
+        'If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.new called with Service XML = " & ServiceXML & " and DeviceURL =  " & DeviceURL, LogType.LOG_TYPE_INFO)
         If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.new called for DeviceUDN = " & DeviceUDN & " and DeviceURL =  " & DeviceURL, LogType.LOG_TYPE_INFO, LogColorGreen)
         If DeviceURL = "" Then
             If upnpDebuglevel > DebugLevel.dlOff Then Log("MyUPnPService.new called with empty DeviceURL =  " & DeviceURL, LogType.LOG_TYPE_WARNING)
@@ -2401,6 +2451,7 @@ Public Class MyUPnPService
                     webRequest.Method = "GET"
                     'webRequest.Headers.Add("Connection", "close")
                     webRequest.KeepAlive = False
+                    webRequest.Timeout = 20000  ' added 10/24/2019
                     Dim webResponse As System.Net.WebResponse = webRequest.GetResponse
                     Dim webStream As System.IO.Stream = webResponse.GetResponseStream
                     Dim strmRdr As New System.IO.StreamReader(webStream)
@@ -2412,11 +2463,17 @@ Public Class MyUPnPService
                     webStream.Dispose()
                     webResponse = Nothing
                 Catch ex As Exception
+                    If MyServiceID = "urn:dial-multiscreen-org:serviceId:dial" Then ' added 10/24/2019
+                        ' most dial devices have no service info and unfortunately (ex Google nest) have wrong info ex ssdp/notfound in the Google Nest case
+                        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in MyUPnPService.new for DIAL Service = " & MyServiceID & " while retrieving document with URL = " & MySCPDURL & " for ServiceID =  " & MyServiceID & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                        Exit Sub
+                    End If
                     If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MyUPnPService.new for Service = " & MyServiceID & " while retrieving document with URL = " & MySCPDURL & " for ServiceID =  " & MyServiceID & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                     'Throw New System.Exception("Error in MyUPnPService.new for Service = " & MyServiceID & " while retrieving document with URL = " & MySCPDURL & " for ServiceID =  " & MyServiceID & " with error = " & ex.Message)
                     Exit Sub
                 End Try
                 MyServiceXML = RemoveControlCharacters(PageHTML)
+                hasServiceXMLRetrieved = True
             End If
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MyUPnPService.new retrieving Service XML = " & ServiceXML & " for ServiceID = " & MySCPDURL & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -2475,6 +2532,7 @@ Public Class MyUPnPService
             ServiceStateXMLDocument.LoadXml(ServiceStateXML)
             _serviceStateTable = ServiceStateXMLDocument.GetElementsByTagName("stateVariable")
             ServiceStateXMLDocument = Nothing
+            hasServiceStateRetrieved = True
             'serviceStateTable = ServiceXMLDocument.GetElementsByTagName("stateVariable")
         Catch ex As Exception
             ' could be that there is no action list
@@ -2504,6 +2562,7 @@ Public Class MyUPnPService
             Dim ActionXMLDocument As New XmlDocument
             ActionXMLDocument.LoadXml(ActionXML)
             _actionList = ActionXMLDocument.GetElementsByTagName("action")
+            hasActionListRetrieved = True
             ActionXMLDocument = Nothing
         Catch ex As Exception
             ' could be that there is no action list, not sure this would be valid because what would we do with this service that has no actions ??
@@ -2713,6 +2772,7 @@ Public Class MyUPnPService
             wRequest.Headers.Add("TIMEOUT", "Second-" & "1800") 'MyTimeout.ToString) changed 10/13/2019 set this fixed to 1/2 hour but send renews every 5 min.This guarentees eventing does go to sleep in other side
             wRequest.ContentLength = 0
             wRequest.KeepAlive = False
+            wRequest.Timeout = 10000    ' added 10/24/2019
             Dim webResponse As HttpWebResponse = Nothing
             webResponse = wRequest.GetResponse
 
@@ -2763,6 +2823,7 @@ Public Class MyUPnPService
             Throw New System.Exception("Error in MyUPnPService.AddCallback for ServiceID = " & MySCPDURL & ". Unable to extract the timeout info with error = " & ex.Message)
             Exit Function
         End Try
+        isServiceEventsSubscribed = True
         Randomize()
         ' Generate random value between 1 second and an 8th of the requested interval. 
         Dim value As Integer = CInt(Int((MyTimeout / 8 * Rnd()) + 1)) * 1000
@@ -2799,16 +2860,8 @@ Public Class MyUPnPService
 
         If ReferenceToMasterUPNPDevice IsNot Nothing Then
             If Not ReferenceToMasterUPNPDevice.Alive Then
-                If MySubscribeRenewTimer IsNot Nothing Then
-                    MySubscribeRenewTimer.Enabled = False
-                    MySubscribeRenewTimer.Stop()
-                End If
-                MySubscribeRenewTimer = Nothing
-                If MyMissedRenewTimer IsNot Nothing Then
-                    MyMissedRenewTimer.Enabled = False
-                    MySubscribeRenewTimer.Stop()
-                End If
-                MyMissedRenewTimer = Nothing
+                StopTimers(False)
+                isServiceEventsSubscribed = False
                 Try
                     RaiseEvent ServiceDied()
                 Catch ex As Exception
@@ -2827,17 +2880,18 @@ Public Class MyUPnPService
         Dim beforeTime As DateTime = DateTime.Now
 
         Try
-            Dim p = ServicePointManager.FindServicePoint(RequestUri)
-            p.Expect100Continue = False
+            'Dim p = ServicePointManager.FindServicePoint(RequestUri)   ' removed 11/10/2019
+            'p.Expect100Continue = False
+
             Dim wRequest As HttpWebRequest = DirectCast(System.Net.HttpWebRequest.Create(RequestUri), HttpWebRequest) 'HttpWebRequest.Create(RequestUri)
             wRequest.Method = "SUBSCRIBE"
             wRequest.Host = RequestUri.Authority
             wRequest.ProtocolVersion = HttpVersion.Version11
             wRequest.Headers.Add("SID", MyReceivedSID)
-            wRequest.Headers.Add("TIMEOUT", "Second-" & MyTimeout)
+            wRequest.Headers.Add("TIMEOUT", "Second-1800")
             wRequest.KeepAlive = False
             wRequest.ContentLength = 0
-            'wRequest.Timeout = 5000 ' max 5 seconds added back 10/13/2019. Seems to help when a player is off-line, else it timesout at random (minutes!)
+            wRequest.Timeout = 10000 ' changed to 10 sec on 10/24/2019 fro max 5 seconds added back 10/13/2019. Seems to help when a player is off-line, else it times out at random (minutes!)
             Dim webResponse As HttpWebResponse = Nothing
             webResponse = wRequest.GetResponse
 
@@ -2863,24 +2917,21 @@ Public Class MyUPnPService
             webResponse.Close()
             webResponse = Nothing
             wRequest = Nothing
-            p = Nothing
-            ' dcor test
+            'p = Nothing
             Dim afterTime As DateTime = DateTime.Now
             Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
             If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " sent renewal with elapsed time = " & deltaTime.TotalMilliseconds.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
         Catch ex As WebException
-            If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while sending URL = " & MyeventSubURL & " with SID = " & MyReceivedSID & " and error = " & ex.Message, LogType.LOG_TYPE_WARNING)
+            isServiceEventsSubscribed = False
             Dim afterTime As DateTime = DateTime.Now
             Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
-            If upnpDebuglevel > DebugLevel.dlOff Then Log("MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " sent renewal with elapsed time = " & deltaTime.TotalMilliseconds.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while sending URL = " & MyeventSubURL & " with SID = " & MyReceivedSID & " sent renewal with elapsed time = " & deltaTime.TotalMilliseconds.ToString & " and error = " & ex.Message, LogType.LOG_TYPE_WARNING)
             Dim webResponse As HttpWebResponse = ex.Response
             If webResponse IsNot Nothing Then
                 Dim webStream As Stream = webResponse.GetResponseStream
                 Dim strmRdr As New System.IO.StreamReader(webStream)
                 Dim ResponseHTML As String = strmRdr.ReadToEnd()
                 strmRdr.Dispose()
-                If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while response = " & ResponseHTML, LogType.LOG_TYPE_WARNING)
                 If webResponse.StatusCode = HttpStatusCode.PreconditionFailed Then
                     ' actually upon further study, I found it if I use a laptop, put it in sleep mode, wake it, I get this error. It means the SID is not valid anymore so we need to reconnect
                     If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " because code 412. Typically means the client had a problem communicating an event and released the subscription. We will try to re-subscribe. Network issue?", LogType.LOG_TYPE_WARNING)
@@ -2891,18 +2942,17 @@ Public Class MyUPnPService
                     Catch ex1 As Exception
                         If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull adding new callback MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " with Error = " & ex1.Message, LogType.LOG_TYPE_ERROR)
                     End Try
+                Else
+                    If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while response = " & ResponseHTML, LogType.LOG_TYPE_WARNING)
                 End If
             Else
                 mySubscribeRenewCounter += 1
-                If mySubscribeRenewCounter < 2 Then Return True
+                If mySubscribeRenewCounter < 2 Then
+                    SetRenewTimer(500)
+                    Return True
+                End If
             End If
-                If MySubscribeRenewTimer IsNot Nothing Then
-                MySubscribeRenewTimer.Enabled = False
-                MySubscribeRenewTimer.Stop()
-            End If
-            MySubscribeRenewTimer = Nothing
-            If MyMissedRenewTimer IsNot Nothing Then MyMissedRenewTimer.Enabled = False
-            MyMissedRenewTimer = Nothing
+            StopTimers(False)
             Try
                 RaiseEvent ServiceDied()
             Catch ex1 As Exception
@@ -2913,13 +2963,8 @@ Public Class MyUPnPService
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew(1) for ServiceID = " & MySCPDURL & " while sending URL = " & MyeventSubURL & " with SID = " & MyReceivedSID & " and error = " & ex.Message, LogType.LOG_TYPE_WARNING)
             If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew(1) for ServiceID = " & MySCPDURL & " with StatusCode = " & StatusCode & " and Description = " & StatusDescription, LogType.LOG_TYPE_WARNING, LogColorNavy)
-            If MySubscribeRenewTimer IsNot Nothing Then
-                MySubscribeRenewTimer.Enabled = False
-                MySubscribeRenewTimer.Stop()
-            End If
-            MySubscribeRenewTimer = Nothing
-            If MyMissedRenewTimer IsNot Nothing Then MyMissedRenewTimer.Enabled = False
-            MyMissedRenewTimer = Nothing
+            isServiceEventsSubscribed = False
+            StopTimers(False)
             Try
                 RaiseEvent ServiceDied()
             Catch ex1 As Exception
@@ -2931,7 +2976,7 @@ Public Class MyUPnPService
 
         Try
             Dim ReceivedTimeOutData As Integer = RetrieveTimeoutData(TimeOut)
-            If ReceivedTimeOutData <> MyTimeout Then
+            If ReceivedTimeOutData < 1200 Then ' changed from comparision with MyTimeout to 1800 on 11/15/2019. We run the renew at 600 but ask for 1800
                 If upnpDebuglevel > DebugLevel.dlOff Then Log("Warning in MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & ". Timeout info is different from requested. Requested = " & MyTimeout.ToString & " received = " & ReceivedTimeOutData.ToString, LogType.LOG_TYPE_WARNING, LogColorNavy)
                 Dim NewTimeout As Integer = ReceivedTimeOutData
                 Randomize()
@@ -2952,14 +2997,8 @@ Public Class MyUPnPService
         If StatusCode.ToUpper <> "OK" Then
             'If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("Unsuccesfull SendRenew for ServiceID = " & MySCPDURL & " with StatusCode = " & StatusCode & " and Description = " & StatusDescription, LogType.LOG_TYPE_WARNING)
             If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " with StatusCode = " & StatusCode & " and Description = " & StatusDescription, LogType.LOG_TYPE_WARNING, LogColorNavy)
-
-            If MySubscribeRenewTimer IsNot Nothing Then
-                MySubscribeRenewTimer.Enabled = False
-                MySubscribeRenewTimer.Stop()
-            End If
-            MySubscribeRenewTimer = Nothing
-            If MyMissedRenewTimer IsNot Nothing Then MyMissedRenewTimer.Enabled = False
-            MyMissedRenewTimer = Nothing
+            StopTimers(False)
+            isServiceEventsSubscribed = False
             Try
                 RaiseEvent ServiceDied()
             Catch ex As Exception
@@ -2970,8 +3009,55 @@ Public Class MyUPnPService
         SendRenew = True
     End Function
 
+    Private Sub StopTimers(sendCancel As Boolean)
+        Try
+            If MyMissedRenewTimer IsNot Nothing Then
+                MyMissedRenewTimer.Enabled = False
+                MyMissedRenewTimer.Stop()
+                MyMissedRenewTimer.Dispose()
+            End If
+        Catch ex As Exception
+        End Try
+        MyMissedRenewTimer = Nothing
+        Try
+            If MyEventTimer IsNot Nothing Then
+                MyEventTimer.Enabled = False
+                MyEventTimer.Stop()
+                MyEventTimer.Dispose()
+            End If
+        Catch ex As Exception
+        End Try
+        MyEventTimer = Nothing
+        If MySubscribeRenewTimer IsNot Nothing Then
+            Try
+                MySubscribeRenewTimer.Enabled = False
+                MySubscribeRenewTimer.Stop()
+                MySubscribeRenewTimer.Dispose()
+            Catch ex As Exception
+            End Try
+            If sendCancel Then SendCancelSubscription()
+        End If
+        MySubscribeRenewTimer = Nothing
+    End Sub
+
+    Private Sub SetRenewTimer(newTime As Integer)
+        Try
+            If MyMissedRenewTimer Is Nothing Then
+                MyMissedRenewTimer = New Timers.Timer With {
+                .Interval = newTime,
+                .AutoReset = False,
+                .Enabled = False
+            }
+            End If
+            MyMissedRenewTimer.Enabled = True
+        Catch ex As Exception
+            If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MyUPnPService.SetRenewTimer. Unable to create the renew timer for ServiceID = " & MySCPDURL & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
     Private Sub SendCancelSubscription()
         If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.SendCancelSubscription called for ServiceID = " & MySCPDURL, LogType.LOG_TYPE_INFO, LogColorGreen)
+        isServiceEventsSubscribed = False
         Dim RequestUri = New Uri(MyeventSubURL)
         Try
             Dim p = ServicePointManager.FindServicePoint(RequestUri)
@@ -3148,7 +3234,7 @@ Public Class MyUPnPService
             wRequest.ContentType = "text/xml; charset=""utf-8"""
             wRequest.ContentLength = getprotocol_request.Item2.Length
             If inCookieContainer IsNot Nothing Then
-                If piDebuglevel > DebugLevel.dlEvents Then Log("MyUPnPService.InvokeAction has cookiecontainer", LogType.LOG_TYPE_INFO)
+                If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyUPnPService.InvokeAction has cookiecontainer", LogType.LOG_TYPE_INFO)
                 wRequest.CookieContainer = inCookieContainer
             End If
             wRequest.KeepAlive = False
@@ -3226,7 +3312,7 @@ Public Class MyUPnPService
             If ResponseXML IsNot Nothing Then
                 If ResponseXML.HasChildNodes Then
                     For Each Element As XmlNode In ResponseXML.ChildNodes
-                        'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.InvokeAction for ServiceID = " & MyFullServiceName & " for Action = " & bstrActionName & " found node with Name = " & Element.Name & " and LocalName= " & Element.LocalName, LogType.LOG_TYPE_WARNING)
+                        'If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.InvokeAction for ServiceID = " & MyFullServiceName & " for Action = " & bstrActionName & " found node with Name = " & Element.Name & " and LocalName= " & Element.LocalName, LogType.LOG_TYPE_WARNING)
                         If Element.LocalName = "Envelope" Then
                             If Element.HasChildNodes Then
                                 For Each ChildElement As XmlNode In Element.ChildNodes
@@ -3280,20 +3366,27 @@ Public Class MyUPnPService
     Function QueryStateVariable(bstrVariableName As String) As String
         If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.QueryStateVariable called for ServiceID = " & MySCPDURL & " with VariableName = " & bstrVariableName, LogType.LOG_TYPE_INFO, LogColorGreen)
         QueryStateVariable = Nothing
+        Dim StateVariable As MyStateVariable = Nothing
         Try
-            Dim StateVariable As MyStateVariable = ServiceStateTable.Item(bstrVariableName)
-            QueryStateVariable = StateVariable.Value
+            StateVariable = ServiceStateTable.Item(bstrVariableName)
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then Log("Error in MyUPnPService.QueryStateVariable for ServiceID = " & MySCPDURL & " with VariableName = " & bstrVariableName & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Throw New System.Exception("Error in MyUPnPService.QueryStateVariable for ServiceID = " & MySCPDURL & " with VariableName = " & bstrVariableName & " and Error = " & ex.Message)
         End Try
+        If StateVariable IsNot Nothing AndAlso StateVariable.hasValue Then ' added 11/10/2019
+            QueryStateVariable = StateVariable.value
+        Else
+            If upnpDebuglevel > DebugLevel.dlEvents Then Log("Warning in MyUPnPService.QueryStateVariable for ServiceID = " & MySCPDURL & " with VariableName = " & bstrVariableName & ". No value received", LogType.LOG_TYPE_WARNING)
+            Throw New System.Exception("Warning in MyUPnPService.QueryStateVariable for ServiceID = " & MySCPDURL & " with VariableName = " & bstrVariableName & ". No Value")
+        End If
     End Function
 
     Private Sub UpdateStateVariable(bstrVariableName As String, VariableValue As String)
         If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyUPnPService.UpdateStateVariable called for ServiceID = " & MySCPDURL & " with VariableName = " & bstrVariableName & " and VariableValue = " & VariableValue, LogType.LOG_TYPE_INFO, LogColorGreen)
         Try
             Dim StateVariable As MyStateVariable = ServiceStateTable.Item(bstrVariableName)
-            StateVariable.Value = VariableValue
+            StateVariable.value = VariableValue
+            StateVariable.hasValue = True
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in MyUPnPService.UpdateStateVariable for ServiceID = " & MySCPDURL & " with VariableName = " & bstrVariableName & " and VariableValue = " & VariableValue & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
@@ -3345,18 +3438,18 @@ Public Class MyUPnPService
                 If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyUPnPService.TreatEventQueue for ServiceID = " & MySCPDURL & " is processing NotifyData = " & NotifyData & " with SEQ = " & SEQ.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
 
                 If upnpDebuglevel > DebugLevel.dlEvents Then
-                    'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.HandleDataReceive found HTTP version = " & ParseHTTPResponse(Data, "http/"), LogType.LOG_TYPE_INFO)
-                    Log("MyUPnPService..HandleDataReceive found NOTIFY = " & NotifyData, LogType.LOG_TYPE_INFO, LogColorGreen)
-                    Log("MyUPnPService..HandleDataReceive found HOST = " & ParseHTTPResponse(NewEvent, "host:"), LogType.LOG_TYPE_INFO, LogColorGreen)
-                    Log("MyUPnPService..HandleDataReceive found CONTENT-TYPE = " & ParseHTTPResponse(NewEvent, "content-type:"), LogType.LOG_TYPE_INFO, LogColorGreen)
-                    Log("MyUPnPService..HandleDataReceive found CONTENT-LENGTH = " & ParseHTTPResponse(NewEvent, "content-length:"), LogType.LOG_TYPE_INFO, LogColorGreen)
-                    Log("MyUPnPService..HandleDataReceive found NT = " & NTReceived, LogType.LOG_TYPE_INFO, LogColorGreen)
-                    Log("MyUPnPService..HandleDataReceive found NTS = " & NTSReceived, LogType.LOG_TYPE_INFO, LogColorGreen)
-                    Log("MyUPnPService..HandleDataReceive found SID = " & SID, LogType.LOG_TYPE_INFO, LogColorGreen)
-                    Log("MyUPnPService..HandleDataReceive found BootID = " & BootID, LogType.LOG_TYPE_INFO, LogColorGreen)
-                    Log("MyUPnPService..HandleDataReceive found ConfigID = " & ConfigID, LogType.LOG_TYPE_INFO, LogColorGreen)
-                    Log("MyUPnPService..HandleDataReceive found SearchPort = " & SearchPort, LogType.LOG_TYPE_INFO, LogColorGreen)
-                    Log("MyUPnPService..HandleDataReceive found body = " & BodyReceived, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    'If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.HandleDataReceive found HTTP version = " & ParseHTTPResponse(Data, "http/"), LogType.LOG_TYPE_INFO)
+                    Log("MyUPnPService.TreatEventQueue found NOTIFY = " & NotifyData, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.TreatEventQueue found HOST = " & ParseHTTPResponse(NewEvent, "host:"), LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.TreatEventQueue found CONTENT-TYPE = " & ParseHTTPResponse(NewEvent, "content-type:"), LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.TreatEventQueue found CONTENT-LENGTH = " & ParseHTTPResponse(NewEvent, "content-length:"), LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.TreatEventQueue found NT = " & NTReceived, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.TreatEventQueue found NTS = " & NTSReceived, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.TreatEventQueue found SID = " & SID, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.TreatEventQueue found BootID = " & BootID, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.TreatEventQueue found ConfigID = " & ConfigID, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.TreatEventQueue found SearchPort = " & SearchPort, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.TreatEventQueue found body = " & BodyReceived, LogType.LOG_TYPE_INFO, LogColorGreen)
                 End If
 
                 If SEQ <> "" Then
@@ -3425,26 +3518,8 @@ Public Class MyUPnPService
         End Try
         StateVariableChangedHandlerAddress = Nothing
         ServiceDiedChangedHandlerAddress = Nothing
-        Try
-            If MyEventTimer IsNot Nothing Then MyEventTimer.Enabled = False
-        Catch ex As Exception
-        End Try
-        MyEventTimer = Nothing
-        Try
-            If MyMissedRenewTimer IsNot Nothing Then MyMissedRenewTimer.Enabled = False
-        Catch ex As Exception
-        End Try
-        MyMissedRenewTimer = Nothing
-        If MySubscribeRenewTimer IsNot Nothing Then
-            Try
-                If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyUPnPService.RemoveCallback called for ServiceID = " & MySCPDURL & " just stopped renew timer", LogType.LOG_TYPE_INFO, LogColorGreen)
-                MySubscribeRenewTimer.Enabled = False
-                MySubscribeRenewTimer.Stop()
-                MySubscribeRenewTimer = Nothing
-                SendCancelSubscription() ' do this last because it could time out
-            Catch ex As Exception
-            End Try
-        End If
+        isServiceEventsSubscribed = False
+        StopTimers(True)
     End Sub
 
     Public Sub Dispose()
@@ -3458,28 +3533,7 @@ Public Class MyUPnPService
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in MyUPnPService.Dispose called for ServiceID = " & MySCPDURL & " removing the EventHandlers with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
-        Try
-            If MyEventTimer IsNot Nothing Then MyEventTimer.Enabled = False
-            MyEventTimer = Nothing
-        Catch ex As Exception
-        End Try
-        Try
-            If MyMissedRenewTimer IsNot Nothing Then
-                MyMissedRenewTimer.Enabled = False
-            End If
-            MyMissedRenewTimer = Nothing
-        Catch ex As Exception
-        End Try
-        If MySubscribeRenewTimer IsNot Nothing Then
-            Try
-                If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyUPnPService.Dispose called for ServiceID = " & MySCPDURL & " timer is being reset", LogType.LOG_TYPE_INFO, LogColorGreen)
-                MySubscribeRenewTimer.Enabled = False
-                MySubscribeRenewTimer.Stop()
-                MySubscribeRenewTimer = Nothing
-                SendCancelSubscription() ' do this last because it could time out
-            Catch ex As Exception
-            End Try
-        End If
+        StopTimers(True)
         If ServiceStateTable IsNot Nothing Then
             ServiceStateTable.Dispose()
         End If
@@ -3619,7 +3673,6 @@ Public Class MyUPnPService
         sender = Nothing
     End Sub
 
-
     Private Sub MyEventTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles MyEventTimer.Elapsed
         Try
             TreatEventQueue()
@@ -3632,11 +3685,7 @@ Public Class MyUPnPService
 
     Private Sub MyServiceDiedTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles MyServiceDiedTimer.Elapsed
         Try
-            If MySubscribeRenewTimer IsNot Nothing Then
-                MySubscribeRenewTimer.Enabled = False
-                MySubscribeRenewTimer.Stop()
-            End If
-            MySubscribeRenewTimer = Nothing
+            StopTimers(False)
             Try
                 RaiseEvent ServiceDied()
             Catch ex1 As Exception
@@ -3684,7 +3733,7 @@ Public Class MyUPnPService
             If ResponseXML IsNot Nothing Then
                 If ResponseXML.HasChildNodes Then
                     For Each Element As XmlNode In ResponseXML.ChildNodes
-                        'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.InvokeAction for ServiceID = " & MyFullServiceName & " for Action = " & bstrActionName & " found node with Name = " & Element.Name & " and LocalName= " & Element.LocalName, LogType.LOG_TYPE_WARNING)
+                        'If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyUPnPService.InvokeAction for ServiceID = " & MyFullServiceName & " for Action = " & bstrActionName & " found node with Name = " & Element.Name & " and LocalName= " & Element.LocalName, LogType.LOG_TYPE_WARNING)
                         If Element.LocalName = "Envelope" Then
                             If Element.HasChildNodes Then
                                 For Each ChildElement As XmlNode In Element.ChildNodes
@@ -3887,11 +3936,12 @@ Public Class MyStateVariable
     Public allowedValueList As String = "" 'System.Xml.XmlNodeList = Nothing
     Public allowedValueRange As String = "" 'System.Xml.XmlNodeList = Nothing
     Public defaultValue As String = ""
-    Public Value As String = ""
+    Public value As String = ""
+    Public hasValue As Boolean = False
     Public Sub Dispose()
         allowedValueList = ""
         allowedValueRange = ""
-        Value = ""
+        value = ""
         name = ""
     End Sub
 End Class
@@ -4008,7 +4058,7 @@ Module UPnPDebug
         ' build and return the actual page
         Public Function GetPagePlugin(ByVal pageName As String, ByVal user As String, ByVal userRights As Integer, ByVal queryString As String) As String
 
-            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetPagePlugin for UPnPDebugWindow called with pageName = " & pageName.ToString & " and user = " & user.ToString & " and userRights = " & userRights.ToString & " and queryString = " & queryString, LogType.LOG_TYPE_INFO)
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetPagePlugin for UPnPDebugWindow called with pageName = " & pageName.ToString & " and user = " & user.ToString & " and userRights = " & userRights.ToString & " and queryString = " & queryString, LogType.LOG_TYPE_INFO)
 
             Dim stb As New StringBuilder
             Dim stbUPnPDeviceTable As New StringBuilder
@@ -4090,7 +4140,7 @@ Module UPnPDebug
         End Function
 
         Public Function GetPageDevice(ByVal pageName As String, ByVal queryString As String) As String
-            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetPageDevice for UPnPDebugWindow called with pageName = " & pageName.ToString & " and queryString = " & queryString, LogType.LOG_TYPE_INFO)
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetPageDevice for UPnPDebugWindow called with pageName = " & pageName.ToString & " and queryString = " & queryString, LogType.LOG_TYPE_INFO)
 
             Dim stb As New StringBuilder
             Dim stbUPnPDeviceTable As New StringBuilder
@@ -4191,7 +4241,7 @@ Module UPnPDebug
         End Function
 
         Public Function GetPageService(ByVal pageName As String, ByVal UDN As String, ByVal ServiceID As String) As String
-            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetPageService for UPnPDebugWindow called with pageName = " & pageName.ToString & " and UDN = " & UDN & " and ServiceID = " & ServiceID, LogType.LOG_TYPE_INFO)
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetPageService for UPnPDebugWindow called with pageName = " & pageName.ToString & " and UDN = " & UDN & " and ServiceID = " & ServiceID, LogType.LOG_TYPE_INFO)
 
             Dim stb As New StringBuilder
             Dim stbUPnPDeviceTable As New StringBuilder
@@ -4221,7 +4271,7 @@ Module UPnPDebug
                 stb.Append("<h1>UPnP Service Viewer  " & UPnPService.Id & "</h1>" & vbCrLf)
                 stb.Append(clsPageBuilder.DivEnd)
 
-                stb.Append("Active = " & UPnPService.MyServiceActive.ToString & "</br>")
+                stb.Append("isSubscribed = " & UPnPService.isServiceEventsSubscribed.ToString & "</br>")
                 stb.Append("Service ID = " & UPnPService.Id & "</br>")
                 stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Control URL = " & UPnPService.MycontrolURL & "</br>")
                 stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Event URL = " & UPnPService.MyeventSubURL & "</br>")
@@ -4230,6 +4280,9 @@ Module UPnPDebug
                 stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;TimeOut Value SID = " & UPnPService.MyTimeout.ToString & "</br>")
                 stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Service Type = " & UPnPService.ServiceType & "</br>")
                 stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Service Type ID = " & UPnPService.ServiceTypeIdentifier & "</br>")
+                stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;hasServiceXMLRetrieved = " & UPnPService.hasServiceXMLRetrieved & "</br>")
+                stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;hasServiceStateRetrieved= " & UPnPService.hasServiceStateRetrieved & "</br>")
+                stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;hasActionListRetrieved= " & UPnPService.hasActionListRetrieved & "</br>")
 
                 If UPnPService.ActionList IsNot Nothing Then
                     stb.Append("</br>")
@@ -4256,7 +4309,10 @@ Module UPnPDebug
                     For Each ServiceState In UPnPService.ServiceStateTable
                         stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Service State Name = <b><a name='" & ServiceState.name & "'>" & ServiceState.name & "</a></b></br>")
                         stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Service State Send Events = " & ServiceState.sendEvents & "</br>")
-                        If ServiceState.sendEvents Then stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Service State Value = <textarea>" & ServiceState.Value & "</textarea></br>")
+                        If ServiceState.sendEvents Then
+                            stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Service State hasValue = " & ServiceState.hasValue.ToString & "</br>")
+                            stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Service State Value = <textarea>" & ServiceState.value & "</textarea></br>")
+                        End If
                         stb.Append("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Service State Data Type = " & ServiceState.dataType.ToString & "</br>")
                         If ServiceState.allowedValueList <> "" Then
                             Dim AllowedValueListString As String = ""
@@ -4309,7 +4365,7 @@ Module UPnPDebug
 
 
         Public Overrides Function postBackProc(page As String, data As String, user As String, userRights As Integer) As String
-            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("PostBackProc for UPnPDebugWindow called with page = " & page.ToString & " and data = " & data.ToString & " and user = " & user.ToString & " and userRights = " & userRights.ToString, LogType.LOG_TYPE_INFO)
+            If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("PostBackProc for UPnPDebugWindow called with page = " & page.ToString & " and data = " & data.ToString & " and user = " & user.ToString & " and userRights = " & userRights.ToString, LogType.LOG_TYPE_INFO)
 
             Dim parts As Collections.Specialized.NameValueCollection
             parts = HttpUtility.ParseQueryString(data)
@@ -4321,8 +4377,8 @@ Module UPnPDebug
                         If Part IsNot Nothing Then
                             Dim ObjectNameParts As String()
                             ObjectNameParts = Split(Part, "_")
-                            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("postBackProc for UPnPDebugWindow found Key = " & ObjectNameParts(0).ToString, LogType.LOG_TYPE_INFO)
-                            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("postBackProc for UPnPDebugWindow found Value = " & parts(Part).ToString, LogType.LOG_TYPE_INFO)
+                            If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("postBackProc for UPnPDebugWindow found Key = " & ObjectNameParts(0).ToString, LogType.LOG_TYPE_INFO)
+                            If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("postBackProc for UPnPDebugWindow found Value = " & parts(Part).ToString, LogType.LOG_TYPE_INFO)
                             Dim ObjectValue As String = parts(Part)
                             Select Case ObjectNameParts(0).ToString
                                 Case "DebugChkBox"
@@ -4338,7 +4394,7 @@ Module UPnPDebug
                     Log("Error in postBackProc for UPnPDebugWindow processing with page = " & page.ToString & " and data = " & data.ToString & " and user = " & user.ToString & " and userRights = " & userRights.ToString & " and Error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
                 End Try
             Else
-                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("postBackProc for UPnPDebugWindow found parts to be empty", LogType.LOG_TYPE_INFO)
+                If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then Log("postBackProc for UPnPDebugWindow found parts to be empty", LogType.LOG_TYPE_INFO)
             End If
 
             Return MyBase.postBackProc(page, data, user, userRights)

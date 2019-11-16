@@ -540,7 +540,6 @@ Module util
         End Try
     End Function
 
-
     Public Sub DumpInfoHSDevice(HSRef_ As Integer)
         If HSRef_ <> -1 Then
             Try
@@ -1121,19 +1120,25 @@ Module util
         Dim Ethernetports As New Dictionary(Of String, String)
         Try
             For Each nic As System.Net.NetworkInformation.NetworkInterface In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-                If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The MAC address of {0} is {1}", nic.Description, nic.GetPhysicalAddress()), LogType.LOG_TYPE_INFO)
-                'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("The MAC address of {0} is {1}", nic.Description, nic.GetPhysicalAddress()), LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("The MAC address of {0} is {1} with status {2}", nic.Description, nic.GetPhysicalAddress().ToString, nic.OperationalStatus.ToString), LogType.LOG_TYPE_INFO) ' dcor changed level
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("  The ID of {0} has name {1} and interface type {2}", nic.Id.ToString, nic.Name, nic.NetworkInterfaceType.ToString), LogType.LOG_TYPE_INFO)
                 If nic.OperationalStatus = Net.NetworkInformation.OperationalStatus.Up Then
-                    If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("The MAC address and ID of {0} are {1} and {2}", nic.Description, nic.GetPhysicalAddress(), nic.Id.ToString), LogType.LOG_TYPE_INFO)
                     For Each Ipa In nic.GetIPProperties.UnicastAddresses
-                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The IPaddress address of {0} is {1}", nic.Description, Ipa.Address.ToString), LogType.LOG_TYPE_INFO)
-                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("The IPaddress address of {0} is {1}", nic.Description, Ipa.Address.ToString), LogType.LOG_TYPE_INFO)
+                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
                         If Ipa.Address.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork Then
                             ' we found an IPv4 IPaddress
-                            Ethernetports.Add(nic.Id.ToString, nic.Name & "::::::::::" & Ipa.Address.ToString)
-                            Exit For
+                            Ethernetports.Add(nic.Id.ToString, nic.Name & "::::::::::" & Ipa.Address.ToString & "::::::::::" & Ipa.IPv4Mask.ToString)
+                            'Exit For   ' dcor removed for testing, I want to see all ports in the system
                         End If
                     Next
+                    For Each Ipa In nic.GetIPProperties.AnycastAddresses
+                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("    The AnyCast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                    Next
+                    For Each Ipa In nic.GetIPProperties.MulticastAddresses
+                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("    The Multicast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                    Next
+                Else
+                    ' operational state down
                 End If
             Next
             If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetEthernetPorts found " & Ethernetports.Count.ToString & " Ethernetports with IPv4 addresses assigned", LogType.LOG_TYPE_INFO)
@@ -1146,10 +1151,30 @@ Module util
             Log("Error in GetEthernetPorts trying to get own MAC address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Return Nothing
         End Try
-
-
     End Function
 
+    Public Function IsEthernetPortAlive(ipAddress As String) As Boolean
+        If piDebuglevel > DebugLevel.dlEvents Then Log("IsEthernetPortAlive called with Interface = " & ipAddress, LogType.LOG_TYPE_INFO)
+        Dim Ethernetports As New Dictionary(Of String, String)
+        Try
+            For Each nic As System.Net.NetworkInformation.NetworkInterface In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The MAC address of {0} is {1} with status {2}", nic.Description, nic.GetPhysicalAddress().ToString, nic.OperationalStatus.ToString), LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("  The ID of {0} has name {1} and interface type {2}", nic.Id.ToString, nic.Name, nic.NetworkInterfaceType.ToString), LogType.LOG_TYPE_INFO)
+                If nic.OperationalStatus = Net.NetworkInformation.OperationalStatus.Up Then
+                    For Each Ipa In nic.GetIPProperties.UnicastAddresses
+                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                        If Ipa.Address.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork Then
+                            If Ipa.Address.ToString = ipAddress Then Return True
+                        End If
+                    Next
+                End If
+            Next
+        Catch ex As Exception
+            Log("Error in IsEthernetPortAlive with Interface = " & ipAddress & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            Return False
+        End Try
+        Return False
+    End Function
 
     Public Function EncodeTags(ByVal InString As String) As String
         EncodeTags = InString
@@ -1212,7 +1237,6 @@ Module util
         'Decoded = Decoded.Replace("\n", "\n")
         Return Decoded
     End Function
-
 
     Public Function HexStringToByteArray(ByVal hex As [String]) As Byte()
         Dim NumberChars As Integer = hex.Length
