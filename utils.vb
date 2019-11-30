@@ -517,6 +517,26 @@ Module util
         End Try
     End Sub
 
+    Public Sub SetHideFlagFeature(featureRef As Integer, flagOn As Boolean)
+        If piDebuglevel > DebugLevel.dlEvents Then Log("SetHideFlagFeature called with Ref = " & featureRef.ToString & " and flagOn = " & flagOn.ToString, LogType.LOG_TYPE_INFO)
+        If featureRef = -1 Then Exit Sub
+        Try
+            Dim df As Devices.HsFeature = myHomeSeerSystem.GetFeatureByRef(featureRef)
+            Dim miscFlags As UInteger = df.Misc
+            If flagOn Then
+                miscFlags = miscFlags Or EMiscFlag.Hidden
+            Else
+                miscFlags = miscFlags And Not (EMiscFlag.Hidden)
+            End If
+            Dim newMisc As Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object) = New Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object)()
+            newMisc.Add(EProperty.Misc, miscFlags)
+            myHomeSeerSystem.UpdateFeatureByRef(featureRef, newMisc)
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in SetHideFlagFeature called with Ref = " & featureRef.ToString & " and flagOn = " & flagOn.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+
     Public Function GetPicture(ByVal url As String) As Image
         ' Get the picture at a given URL.
         Dim web_client As New WebClient With {

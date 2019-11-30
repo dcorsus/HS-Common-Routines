@@ -2925,7 +2925,7 @@ Public Class MyUPnPService
             isServiceEventsSubscribed = False
             Dim afterTime As DateTime = DateTime.Now
             Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
-            If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while sending URL = " & MyeventSubURL & " with SID = " & MyReceivedSID & " sent renewal with elapsed time = " & deltaTime.TotalMilliseconds.ToString & " and error = " & ex.Message, LogType.LOG_TYPE_WARNING)
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while sending URL = " & MyeventSubURL & " with SID = " & MyReceivedSID & " sent renewal with elapsed time = " & deltaTime.TotalMilliseconds.ToString & " and error = " & ex.Message, LogType.LOG_TYPE_WARNING)
             Dim webResponse As HttpWebResponse = ex.Response
             If webResponse IsNot Nothing Then
                 Dim webStream As Stream = webResponse.GetResponseStream
@@ -2934,7 +2934,7 @@ Public Class MyUPnPService
                 strmRdr.Dispose()
                 If webResponse.StatusCode = HttpStatusCode.PreconditionFailed Then
                     ' actually upon further study, I found it if I use a laptop, put it in sleep mode, wake it, I get this error. It means the SID is not valid anymore so we need to reconnect
-                    If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " because code 412. Typically means the client had a problem communicating an event and released the subscription. We will try to re-subscribe. Network issue?", LogType.LOG_TYPE_WARNING)
+                    If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " because code 412. Typically means the client had a problem communicating an event and released the subscription. We will try to re-subscribe. Network issue?", LogType.LOG_TYPE_WARNING)
                     Try
                         If AddCallback(Nothing) Then
                             Return True
@@ -2943,7 +2943,7 @@ Public Class MyUPnPService
                         If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull adding new callback MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " with Error = " & ex1.Message, LogType.LOG_TYPE_ERROR)
                     End Try
                 Else
-                    If upnpDebuglevel > DebugLevel.dlOff Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while response = " & ResponseHTML, LogType.LOG_TYPE_WARNING)
+                    If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while response = " & ResponseHTML, LogType.LOG_TYPE_WARNING)
                 End If
             Else
                 mySubscribeRenewCounter += 1
@@ -2977,7 +2977,7 @@ Public Class MyUPnPService
         Try
             Dim ReceivedTimeOutData As Integer = RetrieveTimeoutData(TimeOut)
             If ReceivedTimeOutData < 1200 Then ' changed from comparision with MyTimeout to 1800 on 11/15/2019. We run the renew at 600 but ask for 1800
-                If upnpDebuglevel > DebugLevel.dlOff Then Log("Warning in MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & ". Timeout info is different from requested. Requested = " & MyTimeout.ToString & " received = " & ReceivedTimeOutData.ToString, LogType.LOG_TYPE_WARNING, LogColorNavy)
+                If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("Warning in MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & ". Timeout info is different from requested. Requested = " & MyTimeout.ToString & " received = " & ReceivedTimeOutData.ToString, LogType.LOG_TYPE_WARNING, LogColorNavy)
                 Dim NewTimeout As Integer = ReceivedTimeOutData
                 Randomize()
                 ' Generate random value between 1 second and an 8th of the requested interval. 
