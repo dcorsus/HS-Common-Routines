@@ -232,14 +232,14 @@ Class MyTCPListener
             clientSocket.Close()
             'isConnected = False
             'RaiseEvent Connection(isConnected)
-            Exit Sub
+            'Exit Sub   removed this 12/14/2019 when I had an error and the listener went completely dead
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("MyTcpListener.DoAccept received Error = " & ex.Message, LogType.LOG_TYPE_INFO)
             receiveStatus = False
             clientSocket.Close()
             'isConnected = False
             'RaiseEvent Connection(isConnected)
-            Exit Sub
+            'Exit Sub   removed this 12/14/2019 when I had an error and the listener went completely dead
         Finally
             'RaiseEvent recOK(receiveStatus)
         End Try
