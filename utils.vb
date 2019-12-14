@@ -307,7 +307,7 @@ Module util
         If FileName = "" Then FileName = MyINIFile
         Try
             hs.SaveINISetting(Section, EncodeINIKey(Key), Nothing, MyINIFile)
-            If piDebuglevel > DebugLevel.dlEvents Then Log("DeleteEntryIniFile called with section = " & Section & " and Key = " & EncodeINIKey(Key), LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlEvents  Then Log("DeleteEntryIniFile called with section = " & Section & " and Key = " & EncodeINIKey(Key), LogType.LOG_TYPE_INFO)
         Catch ex As Exception
             Log("Error in DeleteEntryIniFile reading " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
@@ -319,10 +319,10 @@ Module util
         Try
             Dim ReturnStrings As String() = hs.GetINISectionEx(Section, FileName)
             If ReturnStrings Is Nothing Then Exit Function
-            If piDebuglevel > DebugLevel.dlEvents Then Log("GetIniSection called with section = " & Section & ", FileName = " & FileName & " and # Result = " & UBound(ReturnStrings, 1).ToString, LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlEvents  Then Log("GetIniSection called with section = " & Section & ", FileName = " & FileName & " and # Result = " & UBound(ReturnStrings, 1).ToString, LogType.LOG_TYPE_INFO)
             Dim KeyValues As New Dictionary(Of String, String)()
             For Each Entry In ReturnStrings
-                'If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetIniSection called with section = " & Section & " found entry = " & Entry.ToString, LogType.LOG_TYPE_INFO)
+                'If piDebuglevel > DebugLevel.dlErrorsOnly  Then Log("GetIniSection called with section = " & Section & " found entry = " & Entry.ToString, LogType.LOG_TYPE_INFO)
                 Dim Values As String() = Split(Entry, "=")
                 If Not Entry Is Nothing And Entry <> "" Then
                     If UBound(Values, 1) > 0 Then
@@ -341,7 +341,7 @@ Module util
     Public Sub DeleteIniSection(ByVal Section As String, Optional FileName As String = "")
         If FileName = "" Then FileName = MyINIFile
         Try
-            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("DeleteIniSection called with section = " & Section & " and FileName = " & FileName, LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlErrorsOnly  Then Log("DeleteIniSection called with section = " & Section & " and FileName = " & FileName, LogType.LOG_TYPE_INFO)
             hs.ClearINISection(Section, FileName)
         Catch ex As Exception
             Log("Error in DeleteIniSection deleting " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)

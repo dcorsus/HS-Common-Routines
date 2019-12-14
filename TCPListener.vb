@@ -21,6 +21,14 @@ Class MyTCPListener
     Private receiveStatus As Boolean = False
     Private MyTCPResponse As String = ""
     Private receivedByteCount As Integer = 0
+    Private debugParam As String
+
+    Public ReadOnly Property CheckDebugParam As Boolean
+        Get
+            If debugParam = "" Then Return True
+            Return (debugParam = MyRemoteIPAddress)
+        End Get
+    End Property
 
     Public Property BytesReceived As Integer
         Get
@@ -71,13 +79,13 @@ Class MyTCPListener
     Public Event DataReceived As DataEventHandler
 
     Public Function Start(hostAdress As String, Optional port As Integer = 0) As Integer
-        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyTcpListener.Start called with local IP Address = " & hostAdress & " and requested local port = " & port.ToString, LogType.LOG_TYPE_INFO)
+        If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("MyTcpListener.Start called with local IP Address = " & hostAdress & " and requested local port = " & port.ToString, LogType.LOG_TYPE_INFO)
         MyLocalIPAddress = hostAdress
         Start = 0
         Try
             MyListenSocket = New TcpListener(IPAddress.Parse(hostAdress), port)
         Catch ex As Exception
-            If upnpDebuglevel > DebugLevel.dlOff Then Log("MyTcpListener.Start had an error creating a TCPListenener with local IP Address = " & hostAdress & " and requested local port = " & port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("MyTcpListener.Start had an error creating a TCPListenener with local IP Address = " & hostAdress & " and requested local port = " & port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Exit Function
         End Try
         connectDone.Reset()
@@ -92,10 +100,10 @@ Class MyTCPListener
                 Dim ListenerEndPoint As System.Net.IPEndPoint = MyListenSocket.LocalEndpoint
                 MyLocalIPPort = ListenerEndPoint.Port
                 Start = MyLocalIPPort
-                If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyTcpListener.Start successfully opened TCP Listening Port with Local IP Address = " & hostAdress & " and local port = " & MyLocalIPPort.ToString, LogType.LOG_TYPE_INFO)
+                If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("MyTcpListener.Start successfully opened TCP Listening Port with Local IP Address = " & hostAdress & " and local port = " & MyLocalIPPort.ToString, LogType.LOG_TYPE_INFO)
             End With
         Catch ex As Exception
-            If upnpDebuglevel > DebugLevel.dlOff Then Log("MyTcpListener.Start had an error while begining to listening on local IP address = " & hostAdress & " and requested local port = " & port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("MyTcpListener.Start had an error while begining to listening on local IP address = " & hostAdress & " and requested local port = " & port.ToString & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             isConnected = False
         Finally
             RaiseEvent Connection(isConnected)
@@ -123,8 +131,8 @@ Class MyTCPListener
             pLocal = clientSocket.Client.LocalEndPoint
             MyRemoteIPAddress = iremote.Address.ToString
             MyRemoteIPPort = iremote.Port.ToString
-            If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyTcpListener.DoAccept active on HostAddress = " & MyLocalIPAddress & " and HostIPPort = " & MyLocalIPPort & " and RemoteAddress = " & MyRemoteIPAddress & " and remoteIPPort = " & MyRemoteIPPort, LogType.LOG_TYPE_INFO)
-            'If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyTcpListener.DoAccept active on HostAddress = " & MyLocalIPAddress & " and HostIPPort = " & MyLocalIPPort & " and RemoteAddress = " & MyRemoteIPAddress & " and remoteIPPort = " & MyRemoteIPPort, LogType.LOG_TYPE_INFO)
+            If upnpDebuglevel > DebugLevel.dlEvents AndAlso CheckDebugParam Then Log("MyTcpListener.DoAccept active on HostAddress = " & MyLocalIPAddress & " and HostIPPort = " & MyLocalIPPort & " and RemoteAddress = " & MyRemoteIPAddress & " and remoteIPPort = " & MyRemoteIPPort, LogType.LOG_TYPE_INFO)
+            'If upnpDebuglevel > DebugLevel.dlErrorsOnly andAlso CheckDebugParam Then Log("MyTcpListener.DoAccept active on HostAddress = " & MyLocalIPAddress & " and HostIPPort = " & MyLocalIPPort & " and RemoteAddress = " & MyRemoteIPAddress & " and remoteIPPort = " & MyRemoteIPPort, LogType.LOG_TYPE_INFO)
 
         Catch ex As ObjectDisposedException
             'Log("MyTcpListener.DoAccept had an error while start listening on HostAddress = " & MyLocalIPAddress & " and HostIPPort = " & MyLocalIPPort & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -159,8 +167,8 @@ Class MyTCPListener
                     BytesReceived += i
                     receivedByteCount += i
                     data = System.Text.Encoding.UTF8.GetString(bytes, 0, i)
-                    If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyTcpListener.DoAccept Received data = " & data, LogType.LOG_TYPE_INFO)
-                    'If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyTcpListener.DoAccept Received data with length = " & data.Length, LogType.LOG_TYPE_WARNING)
+                    If upnpDebuglevel > DebugLevel.dlEvents AndAlso CheckDebugParam Then Log("MyTcpListener.DoAccept Received data = " & data, LogType.LOG_TYPE_INFO)
+                    'If upnpDebuglevel > DebugLevel.dlErrorsOnly andAlso CheckDebugParam Then Log("MyTcpListener.DoAccept Received data with length = " & data.Length, LogType.LOG_TYPE_WARNING)
                     sb.Append(data)
                     Try
                         If HTTPContentLength = 0 Then
@@ -178,28 +186,28 @@ Class MyTCPListener
                     End Try
                     'If HTTPContentLength <> 0 And HTTPHeaderLength <> 0 Then
                     If HTTPHeaderLength <> 0 Then
-                        'If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyTcpListener.DoAccept Received data with length = " & sb.Length & " and is looking for = " & (HTTPContentLength + HTTPHeaderLength).ToString, LogType.LOG_TYPE_WARNING)
+                        'If upnpDebuglevel > DebugLevel.dlErrorsOnly andAlso CheckDebugParam Then Log("MyTcpListener.DoAccept Received data with length = " & sb.Length & " and is looking for = " & (HTTPContentLength + HTTPHeaderLength).ToString, LogType.LOG_TYPE_WARNING)
                         Dim TransferEncoding As String = ParseHTTPResponse(sb.ToString, "TRANSFER-ENCODING:")
                         If TransferEncoding <> "" Then
-                            If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyTcpListener.DoAccept Received a chunked request with TransferEncoding = " & TransferEncoding, LogType.LOG_TYPE_WARNING)
+                            If upnpDebuglevel > DebugLevel.dlEvents AndAlso CheckDebugParam Then Log("MyTcpListener.DoAccept Received a chunked request with TransferEncoding = " & TransferEncoding, LogType.LOG_TYPE_WARNING)
                             If TransferEncoding.ToLower = "chunked" Then
                                 ChunkedTransmission = True
                             End If
                         End If
                         If (Not ChunkedTransmission) And ((HTTPContentLength + HTTPHeaderLength) = BytesReceived) Then '  changed in v028 11/28/2018 sb.Length) Then
                             ' all received
-                            'If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyTcpListener.DoAccept Received data with length = " & sb.Length.ToString & " and sent a successful response", LogType.LOG_TYPE_INFO)
-                            If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyTcpListener.DoAccept Received data with length = " & sb.Length.ToString & " and sent a successful response", LogType.LOG_TYPE_INFO)
+                            'If upnpDebuglevel > DebugLevel.dlEvents andAlso CheckDebugParam Then Log("MyTcpListener.DoAccept Received data with length = " & sb.Length.ToString & " and sent a successful response", LogType.LOG_TYPE_INFO)
+                            If upnpDebuglevel > DebugLevel.dlEvents AndAlso CheckDebugParam Then Log("MyTcpListener.DoAccept Received data with length = " & sb.Length.ToString & " and sent a successful response", LogType.LOG_TYPE_INFO)
                             ' we need to send a HTTP/1.1 200 OK response
                             TCPResponse = ""
                             Try
                                 RaiseEvent DataReceived(sb.ToString)
                             Catch ex As Exception
-                                If upnpDebuglevel > DebugLevel.dlOff Then Log("MyTcpListener.DoAccept error raising DataReceived with Error = " & ex.Message, LogType.LOG_TYPE_INFO)
+                                If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("MyTcpListener.DoAccept error raising DataReceived with Error = " & ex.Message, LogType.LOG_TYPE_INFO)
                             End Try
                             sendDone.WaitOne()
                             If MyTCPResponse <> "" Then
-                                If upnpDebuglevel > DebugLevel.dlErrorsOnly Then Log("MyTcpListener.DoAccept is returning Response = " & MyTCPResponse, LogType.LOG_TYPE_INFO, LogColorGreen)
+                                If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("MyTcpListener.DoAccept is returning Response = " & MyTCPResponse, LogType.LOG_TYPE_INFO, LogColorGreen)
                                 ' Dim msg As [Byte]() = System.Text.Encoding.ASCII.GetBytes("HTTP/1.1 200 OK" & vbCrLf & "Connection: close" & vbCrLf & "Content-Length: 0" & vbCrLf & vbCrLf)
                                 Dim msg As [Byte]() = System.Text.Encoding.UTF8.GetBytes(MyTCPResponse)
                                 ' Send back a response.
@@ -213,20 +221,20 @@ Class MyTCPListener
                     i = stream.Read(bytes, 0, bytes.Length)
                 End While
                 If Not ResponseSent Then
-                    If upnpDebuglevel > DebugLevel.dlEvents Then Log("MyTcpListener.DoAccept Received data but did not send a response", LogType.LOG_TYPE_WARNING)
+                    If upnpDebuglevel > DebugLevel.dlEvents AndAlso CheckDebugParam Then Log("MyTcpListener.DoAccept Received data but did not send a response", LogType.LOG_TYPE_WARNING)
                 End If
                 .Close()
             End With
             receiveStatus = True
         Catch ex As TimeoutException
-            If upnpDebuglevel > DebugLevel.dlOff Then Log("MyTcpListener.DoAccept timeout = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("MyTcpListener.DoAccept timeout = " & ex.Message, LogType.LOG_TYPE_ERROR)
             receiveStatus = False
             clientSocket.Close()
             'isConnected = False
             'RaiseEvent Connection(isConnected)
             Exit Sub
         Catch ex As Exception
-            If upnpDebuglevel > DebugLevel.dlOff Then Log("MyTcpListener.DoAccept received Error = " & ex.Message, LogType.LOG_TYPE_INFO)
+            If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("MyTcpListener.DoAccept received Error = " & ex.Message, LogType.LOG_TYPE_INFO)
             receiveStatus = False
             clientSocket.Close()
             'isConnected = False
