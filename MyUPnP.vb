@@ -27,7 +27,8 @@ Public Class MySSDP
     Private MyUPnPMCastIPAddress As String = "239.255.255.250"
     Private MyUPnPMCastPort As Integer = 1900
     Private MyDevicesLinkedList As New MyUPnPDevices
-    Private myDiscoverPort As Integer = 0
+    Private myDiscoverUdpPort As Integer = 0
+    Private myActiveDiscoverUdpPort As Integer = -1
 
     Private MyEventListener As MyTCPListener
     Private RestartListenerFlag As Boolean = False
@@ -60,6 +61,25 @@ Public Class MySSDP
         Get
             If debugParam = "" Then Return True
             Return True
+        End Get
+    End Property
+
+    Public Property DiscoverUdpPort As Integer
+        Get
+            Return myActiveDiscoverUdpPort
+        End Get
+        Set(value As Integer)
+
+        End Set
+    End Property
+
+    Public ReadOnly Property GetRXCounters As Integer
+        Get
+            If MulticastAsyncSocket IsNot Nothing Then
+                Return MulticastAsyncSocket.BytesReceived
+            Else
+                Return -1
+            End If
         End Get
     End Property
 
@@ -705,7 +725,7 @@ Public Class MySSDP
 
         StartSSDPDiscovery = Nothing
         UPNPMonitoringDevice = UPnPDeviceToLookFor
-        myDiscoverPort = discoverPort
+        myDiscoverUdpPort = discoverPort
 
         If SSDPAsyncSocket Is Nothing Then
             Try
@@ -759,6 +779,7 @@ Public Class MySSDP
                 If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("Error in MySSDP.StartSSDPDiscovery. No Loopback Client!", LogType.LOG_TYPE_ERROR)
                 Exit Function
             End If
+            myActiveDiscoverUdpPort = SSDPAsyncSocket.LocalIPPort
             Try
                 SSDPAsyncSocketLoopback.Receive()
             Catch ex As Exception
@@ -856,7 +877,7 @@ Public Class MySSDP
     Public Sub SendMSearch()
         If SSDPAsyncSocket Is Nothing Then
             Try
-                SSDPAsyncSocket = New MyUdpClient(PlugInIPAddress, myDiscoverPort)
+                SSDPAsyncSocket = New MyUdpClient(PlugInIPAddress, myDiscoverUdpPort)
             Catch ex As Exception
                 If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("Error in MySSDP.SendMSearch unable to create a Multicast Socket with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                 Exit Sub
@@ -876,6 +897,7 @@ Public Class MySSDP
                 If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("Error in MySSDP.SendMSearch. No Client!", LogType.LOG_TYPE_ERROR)
                 Exit Sub
             End If
+            myActiveDiscoverUdpPort = SSDPAsyncSocket.LocalIPPort
             Try
                 SSDPAsyncSocket.Receive()
             Catch ex As Exception
@@ -893,7 +915,7 @@ Public Class MySSDP
         postData &= "" & vbCrLf
         If upnpDebuglevel > DebugLevel.dlEvents AndAlso CheckDebugParam Then Log("MySSDP.SendMSearch Sending M-Search for " & UPNPMonitoringDevice, LogType.LOG_TYPE_INFO, LogColorGreen)
         If SSDPAsyncSocket IsNot Nothing Then SSDPAsyncSocket.Send(postData, MyUPnPMCastIPAddress, MyUPnPMCastPort)
-        wait(30)
+        'wait(30)
 
         Try
             If SSDPAsyncSocket IsNot Nothing Then
@@ -1323,8 +1345,7 @@ Public Class MySSDP
     Private Sub MyAuditTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles myAuditTimer.Elapsed
 
         If Not IsEthernetPortAlive(PlugInIPAddress) Then
-            If upnpDebuglevel > DebugLevel.dlEvents AndAlso CheckDebugParam Then Log("Error in MySSDP.MyAuditTimer_Elapsed!! The Ethernet interface provide by HS = " & PlugInIPAddress & " is down !!!", LogType.LOG_TYPE_INFO, LogColorGreen)
-            GetEthernetPorts()
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("Error in MySSDP.MyAuditTimer_Elapsed!! The Ethernet interface provide by HS = " & PlugInIPAddress & " is down !!!", LogType.LOG_TYPE_INFO, LogColorGreen)
         End If
 
         ' added 10/14/2019 to deal with multicast listener going out to lunch
@@ -1358,7 +1379,7 @@ Public Class MySSDP
                 End If
                 SendMSearch()
             Catch ex As Exception
-                If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("MySSDP.MyAuditTimer_Elapsed called and had Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("MySSDP.MyAuditTimer_Elapsed called and had error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             End Try
         End If
         e = Nothing
@@ -1421,6 +1442,8 @@ Public Class MyUPnPDevice
     Private DeviceDiedHandlerAddress As DeviceDiedEventHandler
     Private DeviceAliveHandlerAddress As DeviceAliveEventHandler
     Private debugParam As String
+
+
     Public ReadOnly Property CheckDebugParam As Boolean
         Get
             If debugParam = "" Then Return True
@@ -1776,25 +1799,27 @@ Public Class MyUPnPDevice
             webRequest.KeepAlive = False
             webRequest.ContentLength = 0
             webRequest.Timeout = 20000 ' 5000 ' set to max of 5 seconds changed on 9/10/2019 
-            Dim webResponse As WebResponse = webRequest.GetResponse
-            Dim afterTime As DateTime = DateTime.Now
-            Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
-            Try
-                ApplicationURL = webResponse.Headers("Application-URL")
-                If ApplicationURL <> "" Then
-                    If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("MyUPnPDevice.RetrieveDeviceInfo called for device = " & UniqueDeviceName & " with location = " & Location & " after " & deltaTime.TotalMilliseconds.ToString & " milliseconds retrieved Application-URL = " & ApplicationURL, LogType.LOG_TYPE_INFO, LogColorGreen)
-                End If
-            Catch ex As Exception
-            End Try
-            Dim webStream As Stream = webResponse.GetResponseStream
-            Dim strmRdr As New System.IO.StreamReader(webStream)
-            PageHTML = strmRdr.ReadToEnd()
-            strmRdr.Close()
-            strmRdr.Dispose()
-            webStream.Close()
-            webResponse.Close()
-            webStream.Dispose()
-            webResponse = Nothing
+            Using webResponse As WebResponse = webRequest.GetResponse   ' changed this on 2/2/2020 because I have these timeouts on Linux
+                Dim afterTime As DateTime = DateTime.Now
+                Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
+                Try
+                    ApplicationURL = webResponse.Headers("Application-URL")
+                    If ApplicationURL <> "" Then
+                        If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("MyUPnPDevice.RetrieveDeviceInfo called for device = " & UniqueDeviceName & " with location = " & Location & " after " & deltaTime.TotalMilliseconds.ToString & " milliseconds retrieved Application-URL = " & ApplicationURL, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    End If
+                Catch ex As Exception
+                End Try
+                Using webStream As Stream = webResponse.GetResponseStream
+                    Using strmRdr As New System.IO.StreamReader(webStream)
+                        PageHTML = strmRdr.ReadToEnd()
+                        strmRdr.Close()
+                        strmRdr.Dispose()
+                        webStream.Close()
+                        webResponse.Close()
+                        webStream.Dispose()
+                    End Using
+                End Using
+            End Using
         Catch ex As Exception
             Dim afterTime As DateTime = DateTime.Now
             Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
@@ -2472,16 +2497,18 @@ Public Class MyUPnPService
                     'webRequest.Headers.Add("Connection", "close")
                     webRequest.KeepAlive = False
                     webRequest.Timeout = 20000  ' added 10/24/2019
-                    Dim webResponse As System.Net.WebResponse = webRequest.GetResponse
-                    Dim webStream As System.IO.Stream = webResponse.GetResponseStream
-                    Dim strmRdr As New System.IO.StreamReader(webStream)
-                    PageHTML = strmRdr.ReadToEnd()
-                    strmRdr.Close()
-                    strmRdr.Dispose()
-                    webStream.Close()
-                    webResponse.Close()
-                    webStream.Dispose()
-                    webResponse = Nothing
+                    Using webResponse As System.Net.WebResponse = webRequest.GetResponse
+                        Using webStream As System.IO.Stream = webResponse.GetResponseStream
+                            Using strmRdr As New System.IO.StreamReader(webStream)
+                                PageHTML = strmRdr.ReadToEnd()
+                                strmRdr.Close()
+                                strmRdr.Dispose()
+                                webStream.Close()
+                                webResponse.Close()
+                                webStream.Dispose()
+                            End Using
+                        End Using
+                    End Using
                 Catch ex As Exception
                     If MyServiceID = "urn:dial-multiscreen-org:serviceId:dial" Then ' added 10/24/2019
                         ' most dial devices have no service info and unfortunately (ex Google nest) have wrong info ex ssdp/notfound in the Google Nest case
@@ -2793,32 +2820,31 @@ Public Class MyUPnPService
             wRequest.ContentLength = 0
             wRequest.KeepAlive = False
             wRequest.Timeout = 10000    ' added 10/24/2019
-            Dim webResponse As HttpWebResponse = Nothing
-            webResponse = wRequest.GetResponse
+            Using webResponse As HttpWebResponse = wRequest.GetResponse
 
-            If upnpDebuglevel > DebugLevel.dlEvents Then
-                Log("AddCallback got Method Response = " & webResponse.Method.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("AddCallback got StatusCode Response = " & webResponse.StatusCode.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("AddCallback got StatusDescription Response = " & webResponse.StatusDescription.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("AddCallback got ProtocolVersion Response = " & webResponse.ProtocolVersion.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("AddCallback got ResponseUri Response = " & webResponse.ResponseUri.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("AddCallback got Server Response = " & webResponse.Server.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("AddCallback got ContentLength  Response = " & webResponse.ContentLength.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-            End If
+                If upnpDebuglevel > DebugLevel.dlEvents Then
+                    Log("AddCallback got Method Response = " & webResponse.Method.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("AddCallback got StatusCode Response = " & webResponse.StatusCode.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("AddCallback got StatusDescription Response = " & webResponse.StatusDescription.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("AddCallback got ProtocolVersion Response = " & webResponse.ProtocolVersion.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("AddCallback got ResponseUri Response = " & webResponse.ResponseUri.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("AddCallback got Server Response = " & webResponse.Server.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("AddCallback got ContentLength  Response = " & webResponse.ContentLength.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                End If
 
-            If upnpDebuglevel > DebugLevel.dlEvents Then
-                For Each header In webResponse.Headers
-                    Log("AddCallback got Header Response = " & header.ToString & " and Value = " & webResponse.Headers.Get(header).ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Next
-            End If
+                If upnpDebuglevel > DebugLevel.dlEvents Then
+                    For Each header In webResponse.Headers
+                        Log("AddCallback got Header Response = " & header.ToString & " and Value = " & webResponse.Headers.Get(header).ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Next
+                End If
 
-            StatusCode = webResponse.StatusCode.ToString                ' OK
-            StatusDescription = webResponse.StatusDescription.ToString  ' OK
-            TimeOut = webResponse.Headers.Get("TIMEOUT").ToString       ' Second-300 ' Need this to set timer to renew subscriptions
-            SID = webResponse.Headers.Get("SID").ToString               ' uuid:RINCON_000E5859008A01400_sub0000001133  need this for renewing the Subscription
-            webResponse.Close()
-            webResponse = Nothing
-            wRequest = Nothing
+                StatusCode = webResponse.StatusCode.ToString                ' OK
+                StatusDescription = webResponse.StatusDescription.ToString  ' OK
+                TimeOut = webResponse.Headers.Get("TIMEOUT").ToString       ' Second-300 ' Need this to set timer to renew subscriptions
+                SID = webResponse.Headers.Get("SID").ToString               ' uuid:RINCON_000E5859008A01400_sub0000001133  need this for renewing the Subscription
+                webResponse.Close()
+                wRequest = Nothing
+            End Using
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("Error in MyUPnPService.AddCallback while sending URL = " & MyeventSubURL & " to = " & RequestUri.OriginalString.ToString & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Throw New System.Exception("Error in MyUPnPService.AddCallback while sending URL = " & MyeventSubURL & " to = " & RequestUri.OriginalString.ToString & " with error = " & ex.Message)
@@ -2912,32 +2938,31 @@ Public Class MyUPnPService
             wRequest.KeepAlive = False
             wRequest.ContentLength = 0
             wRequest.Timeout = 10000 ' changed to 10 sec on 10/24/2019 fro max 5 seconds added back 10/13/2019. Seems to help when a player is off-line, else it times out at random (minutes!)
-            Dim webResponse As HttpWebResponse = Nothing
-            webResponse = wRequest.GetResponse
+            Using webResponse As HttpWebResponse = wRequest.GetResponse
 
-            If upnpDebuglevel > DebugLevel.dlEvents Then
-                Log("MyUPnPService.SendRenew got Method Response = " & webResponse.Method.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("MyUPnPService.SendRenew got StatusCode Response = " & webResponse.StatusCode.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("MyUPnPService.SendRenew got StatusDescription Response = " & webResponse.StatusDescription.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("MyUPnPService.SendRenew got ProtocolVersion Response = " & webResponse.ProtocolVersion.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("MyUPnPService.SendRenew got ResponseUri Response = " & webResponse.ResponseUri.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("MyUPnPService.SendRenew got Server Response = " & webResponse.Server.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Log("MyUPnPService.SendRenew got ContentLength  Response = " & webResponse.ContentLength.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                For Each header In webResponse.Headers
-                    Log("MyUPnPService.SendRenew got Header Response = " & header.ToString & " and Value = " & webResponse.Headers.Get(header).ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
-                Next
-            End If
+                If upnpDebuglevel > DebugLevel.dlEvents Then
+                    Log("MyUPnPService.SendRenew got Method Response = " & webResponse.Method.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.SendRenew got StatusCode Response = " & webResponse.StatusCode.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.SendRenew got StatusDescription Response = " & webResponse.StatusDescription.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.SendRenew got ProtocolVersion Response = " & webResponse.ProtocolVersion.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.SendRenew got ResponseUri Response = " & webResponse.ResponseUri.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.SendRenew got Server Response = " & webResponse.Server.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Log("MyUPnPService.SendRenew got ContentLength  Response = " & webResponse.ContentLength.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    For Each header In webResponse.Headers
+                        Log("MyUPnPService.SendRenew got Header Response = " & header.ToString & " and Value = " & webResponse.Headers.Get(header).ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+                    Next
+                End If
 
-            StatusCode = webResponse.StatusCode.ToString                ' OK
-            StatusDescription = webResponse.StatusDescription.ToString  ' OK
-            TimeOut = webResponse.Headers.Get("TIMEOUT").ToString       ' Second-300 ' Need this to set timer to renew subscriptions
-            SID = webResponse.Headers.Get("SID").ToString               ' uuid:RINCON_000E5859008A01400_sub0000001133  need this for renewing the Subscription
-            'If UPnPDebuglevel > DebugLevel.dlErrorsOnly andAlso CheckDebugParam Then Log("Succesful MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while sending URL = " & MyeventSubURL & " with OldSID = " & MyReceivedSID & " with NewSID = " & SID, LogType.LOG_TYPE_WARNING)
-            MissedRenewCounter = 0
-            webResponse.Close()
-            webResponse = Nothing
-            wRequest = Nothing
-            'p = Nothing
+                StatusCode = webResponse.StatusCode.ToString                ' OK
+                StatusDescription = webResponse.StatusDescription.ToString  ' OK
+                TimeOut = webResponse.Headers.Get("TIMEOUT").ToString       ' Second-300 ' Need this to set timer to renew subscriptions
+                SID = webResponse.Headers.Get("SID").ToString               ' uuid:RINCON_000E5859008A01400_sub0000001133  need this for renewing the Subscription
+                'If UPnPDebuglevel > DebugLevel.dlErrorsOnly andAlso CheckDebugParam Then Log("Succesful MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while sending URL = " & MyeventSubURL & " with OldSID = " & MyReceivedSID & " with NewSID = " & SID, LogType.LOG_TYPE_WARNING)
+                MissedRenewCounter = 0
+                webResponse.Close()
+                wRequest = Nothing
+                'p = Nothing
+            End Using
             Dim afterTime As DateTime = DateTime.Now
             Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
             If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " sent renewal with elapsed time = " & deltaTime.TotalMilliseconds.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
@@ -2946,32 +2971,34 @@ Public Class MyUPnPService
             Dim afterTime As DateTime = DateTime.Now
             Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
             If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while sending URL = " & MyeventSubURL & " with SID = " & MyReceivedSID & " sent renewal with elapsed time = " & deltaTime.TotalMilliseconds.ToString & " and error = " & ex.Message, LogType.LOG_TYPE_WARNING)
-            Dim webResponse As HttpWebResponse = ex.Response
-            If webResponse IsNot Nothing Then
-                Dim webStream As Stream = webResponse.GetResponseStream
-                Dim strmRdr As New System.IO.StreamReader(webStream)
-                Dim ResponseHTML As String = strmRdr.ReadToEnd()
-                strmRdr.Dispose()
-                If webResponse.StatusCode = HttpStatusCode.PreconditionFailed Then
-                    ' actually upon further study, I found it if I use a laptop, put it in sleep mode, wake it, I get this error. It means the SID is not valid anymore so we need to reconnect
-                    If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " because code 412. Typically means the client had a problem communicating an event and released the subscription. We will try to re-subscribe. Network issue?", LogType.LOG_TYPE_WARNING)
-                    Try
-                        If AddCallback(Nothing) Then
-                            Return True
+            Using webResponse As HttpWebResponse = ex.Response
+                If webResponse IsNot Nothing Then
+                    Using webStream As Stream = webResponse.GetResponseStream
+                        Dim strmRdr As New System.IO.StreamReader(webStream)
+                        Dim ResponseHTML As String = strmRdr.ReadToEnd()
+                        strmRdr.Dispose()
+                        If webResponse.StatusCode = HttpStatusCode.PreconditionFailed Then
+                            ' actually upon further study, I found it if I use a laptop, put it in sleep mode, wake it, I get this error. It means the SID is not valid anymore so we need to reconnect
+                            If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " because code 412. Typically means the client had a problem communicating an event and released the subscription. We will try to re-subscribe. Network issue?", LogType.LOG_TYPE_WARNING)
+                            Try
+                                If AddCallback(Nothing) Then
+                                    Return True
+                                End If
+                            Catch ex1 As Exception
+                                If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("Unsuccesfull adding new callback MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " with Error = " & ex1.Message, LogType.LOG_TYPE_ERROR)
+                            End Try
+                        Else
+                            If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while response = " & ResponseHTML, LogType.LOG_TYPE_WARNING)
                         End If
-                    Catch ex1 As Exception
-                        If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("Unsuccesfull adding new callback MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " with Error = " & ex1.Message, LogType.LOG_TYPE_ERROR)
-                    End Try
+                    End Using
                 Else
-                    If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " while response = " & ResponseHTML, LogType.LOG_TYPE_WARNING)
+                    mySubscribeRenewCounter += 1
+                    If mySubscribeRenewCounter < 2 Then
+                        SetRenewTimer(500)
+                        Return True
+                    End If
                 End If
-            Else
-                mySubscribeRenewCounter += 1
-                If mySubscribeRenewCounter < 2 Then
-                    SetRenewTimer(500)
-                    Return True
-                End If
-            End If
+            End Using
             StopTimers(False)
             Try
                 RaiseEvent ServiceDied()
@@ -3093,10 +3120,9 @@ Public Class MyUPnPService
             wRequest.KeepAlive = False
             wRequest.ContentLength = 0
             wRequest.Timeout = 500 ' very short wait
-            Dim webResponse As HttpWebResponse = Nothing
-            webResponse = wRequest.GetResponse
-            webResponse.Close()
-            webResponse = Nothing
+            Using webResponse As HttpWebResponse = wRequest.GetResponse
+                webResponse.Close()
+            End Using
             wRequest = Nothing
         Catch ex As Exception
             'Log("Error in MyUPnPService.SendCancelSubscription while sending URL = " & MyeventSubURL & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR) ' if the serviceDied then we can't cancel

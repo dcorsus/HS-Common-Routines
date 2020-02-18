@@ -138,6 +138,7 @@ Module util
     End Function
 
     Public Sub wait(ByVal secs As Decimal)
+        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("wait called with value = " & secs, LogType.LOG_TYPE_INFO)
         Threading.Thread.Sleep(secs * 1000)
     End Sub
 
@@ -518,15 +519,15 @@ Module util
     End Sub
 
     Public Sub SetHideFlagFeature(featureRef As Integer, flagOn As Boolean)
-        If piDebuglevel > DebugLevel.dlEvents Then Log("SetHideFlagFeature called with Ref = " & featureRef.ToString & " and flagOn = " & flagOn.ToString, LogType.LOG_TYPE_INFO)
+        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("SetHideFlagFeature called with Ref = " & featureRef.ToString & " and flagOn = " & flagOn.ToString, LogType.LOG_TYPE_INFO)
         If featureRef = -1 Then Exit Sub
         Try
             Dim df As Devices.HsFeature = myHomeSeerSystem.GetFeatureByRef(featureRef)
             Dim miscFlags As UInteger = df.Misc
             If flagOn Then
-                miscFlags = miscFlags Or EMiscFlag.Hidden
+                miscFlags = miscFlags Or EMiscFlag.Hidden Or EMiscFlag.HideInMobile
             Else
-                miscFlags = miscFlags And Not (EMiscFlag.Hidden)
+                miscFlags = miscFlags And Not (EMiscFlag.Hidden) And Not (EMiscFlag.HideInMobile)
             End If
             Dim newMisc As Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object) = New Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object)()
             newMisc.Add(EProperty.Misc, miscFlags)
@@ -536,6 +537,24 @@ Module util
         End Try
     End Sub
 
+    Public Sub SetHideFlagDevice(deviceRef As Integer, flagOn As Boolean)
+        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("SetHideFlagDevice called with Ref = " & deviceRef.ToString & " and flagOn = " & flagOn.ToString, LogType.LOG_TYPE_INFO)
+        If deviceRef = -1 Then Exit Sub
+        Try
+            Dim dv As Devices.HsDevice = myHomeSeerSystem.GetDeviceByRef(deviceRef)
+            Dim miscFlags As UInteger = dv.Misc
+            If flagOn Then
+                miscFlags = miscFlags Or EMiscFlag.Hidden Or EMiscFlag.HideInMobile
+            Else
+                miscFlags = miscFlags And Not (EMiscFlag.Hidden) And Not (EMiscFlag.HideInMobile)
+            End If
+            Dim newMisc As Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object) = New Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object)()
+            newMisc.Add(EProperty.Misc, miscFlags)
+            myHomeSeerSystem.UpdateDeviceByRef(deviceRef, newMisc)
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in SetHideFlagDevice called with Ref = " & deviceRef.ToString & " and flagOn = " & flagOn.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
 
     Public Function GetPicture(ByVal url As String) As Image
         ' Get the picture at a given URL.
@@ -1135,35 +1154,67 @@ Module util
         If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in GetLocalMacAddress trying to get own MAC address, none found", LogType.LOG_TYPE_ERROR)
     End Function
 
-    Public Function GetEthernetPorts() As Dictionary(Of String, String)
+    Public Function GetEthernetPorts() As IEnumerable(Of NetworkInfo)
         If piDebuglevel > DebugLevel.dlEvents Then Log("GetEthernetPorts called", LogType.LOG_TYPE_INFO)
+        Dim PortInfo As List(Of NetworkInfo) = New List(Of NetworkInfo)
         Dim Ethernetports As New Dictionary(Of String, String)
         Try
             For Each nic As System.Net.NetworkInformation.NetworkInterface In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("The MAC address of {0} is {1} with status {2}", nic.Description, nic.GetPhysicalAddress().ToString, nic.OperationalStatus.ToString), LogType.LOG_TYPE_INFO) ' dcor changed level
-                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("  The ID of {0} has name {1} and interface type {2}", nic.Id.ToString, nic.Name, nic.NetworkInterfaceType.ToString), LogType.LOG_TYPE_INFO)
+                Dim netInfo As New NetworkInfo
+                netInfo.description = nic.Description
+                netInfo.mac = nic.GetPhysicalAddress().ToString
+                netInfo.operationalstate = nic.OperationalStatus.ToString
+                netInfo.id = nic.Id.ToString
+                netInfo.name = nic.Name
+                netInfo.interfacetype = nic.NetworkInterfaceType.ToString
+
+                If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The MAC address of {0} is {1} with status {2}", nic.Description, nic.GetPhysicalAddress().ToString, nic.OperationalStatus.ToString), LogType.LOG_TYPE_INFO) ' dcor changed level
+                If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("  The ID of {0} has name {1} and interface type {2}", nic.Id.ToString, nic.Name, nic.NetworkInterfaceType.ToString), LogType.LOG_TYPE_INFO)
                 If nic.OperationalStatus = Net.NetworkInformation.OperationalStatus.Up Then
                     For Each Ipa In nic.GetIPProperties.UnicastAddresses
-                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
                         If Ipa.Address.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork Then
                             ' we found an IPv4 IPaddress
-                            Ethernetports.Add(nic.Id.ToString, nic.Name & "::::::::::" & Ipa.Address.ToString & "::::::::::" & Ipa.IPv4Mask.ToString)
-                            'Exit For   ' dcor removed for testing, I want to see all ports in the system
+                            Dim addrinfo As New NetworkInfoAddrMask
+                            addrinfo.address = Ipa.Address.ToString
+                            addrinfo.mask = Ipa.IPv4Mask.ToString
+                            addrinfo.addrtype = "IPv4 Unicast"
+                            If netInfo.addressinfo Is Nothing Then netInfo.addressinfo = New List(Of NetworkInfoAddrMask)
+                            netInfo.addressinfo.Add(addrinfo)
+                        ElseIf Ipa.Address.AddressFamily = System.Net.Sockets.AddressFamily.InterNetworkV6 Then
+                            Dim addrinfo As New NetworkInfoAddrMask
+                            addrinfo.address = Ipa.Address.ToString
+                            addrinfo.addrtype = "IPv6 Unicast"
+                            If netInfo.addressinfo Is Nothing Then netInfo.addressinfo = New List(Of NetworkInfoAddrMask)
+                            netInfo.addressinfo.Add(addrinfo)
                         End If
                     Next
                     For Each Ipa In nic.GetIPProperties.AnycastAddresses
-                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("    The AnyCast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The AnyCast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                        Dim addrinfo As New NetworkInfoAddrMask
+                        addrinfo.address = Ipa.Address.ToString
+                        addrinfo.mask = Ipa.Address.AddressFamily.ToString
+                        addrinfo.addrtype = "Anycast"
+                        If netInfo.addressinfo Is Nothing Then netInfo.addressinfo = New List(Of NetworkInfoAddrMask)
+                        netInfo.addressinfo.add(addrinfo)
                     Next
                     For Each Ipa In nic.GetIPProperties.MulticastAddresses
-                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(String.Format("    The Multicast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The Multicast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                        Dim addrinfo As New NetworkInfoAddrMask
+                        addrinfo.address = Ipa.Address.ToString
+                        addrinfo.mask = Ipa.Address.AddressFamily.ToString
+                        addrinfo.addrtype = "Multicast"
+                        If netInfo.addressinfo Is Nothing Then netInfo.addressinfo = New List(Of NetworkInfoAddrMask)
+                        netInfo.addressinfo.add(addrinfo)
                     Next
                 Else
                     ' operational state down
                 End If
+                PortInfo.Add(netInfo)
             Next
             If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetEthernetPorts found " & Ethernetports.Count.ToString & " Ethernetports with IPv4 addresses assigned", LogType.LOG_TYPE_INFO)
-            If Ethernetports.Count > 0 Then
-                Return Ethernetports
+            If PortInfo.Count > 0 Then
+                Return PortInfo
             Else
                 Return Nothing
             End If
