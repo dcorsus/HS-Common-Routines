@@ -709,7 +709,7 @@ Module util
                     Outstring += "%20"
                 ElseIf InString(InIndex) = "!" Then
                     Outstring += "%21"
-                ElseIf InString(InIndex) = """ Then" Then
+                ElseIf InString(InIndex) = """" Then
                     Outstring += "%22"
                 ElseIf InString(InIndex) = "#" Then
                     Outstring += "%23"
@@ -1272,6 +1272,33 @@ Module util
         EncodeTags = Outstring
     End Function
 
+    Public Function EncodeTagsEx(ByVal InString As String) As String
+        EncodeTagsEx = InString
+        Dim InIndex As Integer = 0
+        Dim Outstring As String = ""
+        InString = Trim(InString)
+        If InString = "" Then Exit Function
+        Try
+            Do While InIndex < InString.Length
+                If InString(InIndex) = ">" Then
+                    Outstring += "&gt;"
+                ElseIf InString(InIndex) = "<" Then
+                    Outstring += "&lt;"
+                ElseIf InString(InIndex) = "'" Then
+                    Outstring += "&#39;"
+                ElseIf InString(InIndex) = """" Then
+                    Outstring += "&#34;"
+                Else
+                    Outstring &= InString(InIndex)
+                End If
+                InIndex += 1
+            Loop
+        Catch ex As Exception
+            Log("Error in EncodeTagsEx. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+        EncodeTagsEx = Outstring
+    End Function
+
     Public Function FindPairInJSONString(inString As String, inName As String) As Object
         Try
             If inString = "" Or inName = "" Then Return Nothing
@@ -1360,5 +1387,11 @@ Module util
         Next
         Return returnString
     End Function
+
+    Public Function PrepareForQuery(ByVal inString As String) As String
+        ' this function deals with ' in query names
+        PrepareForQuery = inString.Replace("'", "''")
+    End Function
+
 
 End Module

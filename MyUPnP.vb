@@ -10,6 +10,7 @@ Imports System.Web.UI
 Imports System.Web
 Imports System.Web.UI.HtmlControls
 Imports Scheduler.PageBuilderAndMenu
+Imports Scheduler
 
 Public Class MySSDP
 
@@ -1790,6 +1791,8 @@ Public Class MyUPnPDevice
         If retrieveDeviceInfoReentrancyFlag Then Exit Sub  ' added 11/12/2019
         retrieveDeviceInfoReentrancyFlag = True
         Dim beforeTime As DateTime = DateTime.Now
+
+        Dim location_ As String = Location
         Try
             Dim RequestUri = New Uri(Location)
             'Dim p = ServicePointManager.FindServicePoint(RequestUri) ' removed 11/10/2019
@@ -1805,7 +1808,7 @@ Public Class MyUPnPDevice
                 Try
                     ApplicationURL = webResponse.Headers("Application-URL")
                     If ApplicationURL <> "" Then
-                        If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("MyUPnPDevice.RetrieveDeviceInfo called for device = " & UniqueDeviceName & " with location = " & Location & " after " & deltaTime.TotalMilliseconds.ToString & " milliseconds retrieved Application-URL = " & ApplicationURL, LogType.LOG_TYPE_INFO, LogColorGreen)
+                        If upnpDebuglevel > DebugLevel.dlErrorsOnly AndAlso CheckDebugParam Then Log("MyUPnPDevice.RetrieveDeviceInfo called for device = " & UniqueDeviceName & " with location = " & location_ & " after " & deltaTime.TotalMilliseconds.ToString & " milliseconds retrieved Application-URL = " & ApplicationURL, LogType.LOG_TYPE_INFO, LogColorGreen)
                     End If
                 Catch ex As Exception
                 End Try
@@ -1823,7 +1826,7 @@ Public Class MyUPnPDevice
         Catch ex As Exception
             Dim afterTime As DateTime = DateTime.Now
             Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
-            If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("Error in MyUPnPDevice.RetrieveDeviceInfo for device = " & UniqueDeviceName & " after " & deltaTime.TotalMilliseconds.ToString & " milliseconds while retrieving document with URL = " & Location & " and error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlOff AndAlso CheckDebugParam Then Log("Error in MyUPnPDevice.RetrieveDeviceInfo for device = " & UniqueDeviceName & " after " & deltaTime.TotalMilliseconds.ToString & " milliseconds while retrieving document with URL = " & location_ & " and error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             AliveInLastScan = False
             Location = "" ' reset the location which will force a rediscovery when the next ssdp:alive event is received
             retrieveDeviceInfoReentrancyFlag = False
@@ -1843,7 +1846,7 @@ Public Class MyUPnPDevice
             Location = "" ' reset the location which will force a rediscovery when the next ssdp:alive event is received
             AliveInLastScan = False
         End If
-        If upnpDebuglevel > DebugLevel.dlEvents AndAlso CheckDebugParam Then Log("MyUPnPDevice.RetrieveDeviceInfo done for device = " & UniqueDeviceName & " with location = " & Location, LogType.LOG_TYPE_INFO, LogColorGreen)
+        If upnpDebuglevel > DebugLevel.dlEvents AndAlso CheckDebugParam Then Log("MyUPnPDevice.RetrieveDeviceInfo done for device = " & UniqueDeviceName & " with location = " & location_, LogType.LOG_TYPE_INFO, LogColorGreen)
         retrieveDeviceInfoReentrancyFlag = False
     End Sub
 
@@ -3749,7 +3752,7 @@ Public Class MyUPnPService
         'CONTENT-LENGTH: 347
         'CONTENT-TYPE: text/xml; charset="utf-8"
         'EXT:
-        'Server: Linux UPnP/1.0 Sonos/24.0-69180 (WD100)
+        'Server: Linux UPnP/1.0 Sonos/24.0-69180 
         'Connection: close()
         '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
         '  <s:Body>

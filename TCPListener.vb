@@ -159,7 +159,7 @@ Class MyTCPListener
             With clientSocket
                 ' Get a stream object for reading and writing 
                 Dim stream As NetworkStream = clientSocket.GetStream()
-                Dim i As Int32
+                Dim i As Integer ' Int32
                 ' Loop to receive all the data sent by the client.
                 i = stream.Read(bytes, 0, bytes.Length)
                 While (i <> 0)
