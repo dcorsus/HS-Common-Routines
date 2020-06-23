@@ -91,7 +91,7 @@ Module util
             bteOut = str.ToArray
             Return True
         Catch ex As Exception
-            Log(" Error: Serializing object " & ObjIn.ToString & " :" & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log(" Error: Serializing object " & ObjIn.ToString & " :" & ex.Message, LogType.LOG_TYPE_ERROR)
             Return False
         End Try
 
@@ -131,7 +131,7 @@ Module util
         Catch exIC As InvalidCastException
             Return False
         Catch ex As Exception
-            Log(" Error: DeSerializing object: " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log(" Error: DeSerializing object: " & ex.Message, LogType.LOG_TYPE_ERROR)
             Return False
         End Try
 
@@ -408,7 +408,7 @@ Module util
             GetStringIniFile = myHomeSeerSystem.GetINISetting(Section, EncodeINIKey(Key), DefaultVal, FileName)
             'Log("GetStringIniFile called with section = " & Section & " and Key = " & Key & " read = " & GetStringIniFile, LogType.LOG_TYPE_INFO)
         Catch ex As Exception
-            Log("Error in GetStringIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in GetStringIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Function
 
@@ -419,7 +419,7 @@ Module util
             GetIntegerIniFile = myHomeSeerSystem.GetINISetting(Section, EncodeINIKey(Key), DefaultVal, FileName)
             'Log("GetIntegerIniFile called with section = " & Section & " and Key = " & Key & " read = " & GetIntegerIniFile.ToString, LogType.LOG_TYPE_INFO)
         Catch ex As Exception
-            Log("Error in GetIntegerIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in GetIntegerIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Function
 
@@ -430,7 +430,7 @@ Module util
             GetBooleanIniFile = myHomeSeerSystem.GetINISetting(Section, EncodeINIKey(Key), DefaultVal, FileName)
             'Log("GetBooleanIniFile called with section = " & Section & " and Key = " & Key & " read = " & GetBooleanIniFile.ToString, LogType.LOG_TYPE_INFO)
         Catch ex As Exception
-            Log("Error in GetBooleanIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in GetBooleanIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Function
 
@@ -440,7 +440,7 @@ Module util
             myHomeSeerSystem.SaveINISetting(Section, EncodeINIKey(Key), Value, FileName)
             'Log("WriteStringIniFile called with section = " & Section & " and Key = " & Key & " Value = " & Value.ToString, LogType.LOG_TYPE_INFO)
         Catch ex As Exception
-            Log("Error in WriteStringIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Value = " & Value.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in WriteStringIniFile with section = " & Section & " and Key = " & EncodeINIKey(Key) & " and Value = " & Value.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Sub
 
@@ -450,7 +450,7 @@ Module util
             myHomeSeerSystem.SaveINISetting(Section, EncodeINIKey(Key), Value, FileName)
             'Log("WriteIntegerIniFile called with section = " & Section & " and Key = " & Key & " Value = " & Value.ToString, LogType.LOG_TYPE_INFO)
         Catch ex As Exception
-            Log("Error in WriteIntegerIniFile writing section  " & Section & " and Key = " & EncodeINIKey(Key) & " and Value = " & Value.ToString & " with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in WriteIntegerIniFile writing section  " & Section & " and Key = " & EncodeINIKey(Key) & " and Value = " & Value.ToString & " with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Sub
 
@@ -460,7 +460,7 @@ Module util
             myHomeSeerSystem.SaveINISetting(Section, EncodeINIKey(Key), Value, FileName)
             'Log("WriteBooleanIniFile called with section = " & Section & " and Key = " & Key & " Value = " & Value.ToString, LogType.LOG_TYPE_INFO)
         Catch ex As Exception
-            Log("Error in WriteBooleanIniFile writing section  " & Section & " and Key = " & EncodeINIKey(Key) & " and Value = " & Value.ToString & " with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in WriteBooleanIniFile writing section  " & Section & " and Key = " & EncodeINIKey(Key) & " and Value = " & Value.ToString & " with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Sub
 
@@ -470,7 +470,7 @@ Module util
             myHomeSeerSystem.SaveINISetting(Section, EncodeINIKey(Key), Nothing, myINIFile)
             If piDebuglevel > DebugLevel.dlEvents Then Log("DeleteEntryIniFile called with section = " & Section & " and Key = " & EncodeINIKey(Key), LogType.LOG_TYPE_INFO)
         Catch ex As Exception
-            Log("Error in DeleteEntryIniFile reading " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in DeleteEntryIniFile reading " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Sub
 
@@ -480,7 +480,7 @@ Module util
         Try
             Return myHomeSeerSystem.GetIniSection(Section, FileName)
         Catch ex As Exception
-            Log("Error in GetIniSection reading " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in GetIniSection reading " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Function
 
@@ -490,7 +490,7 @@ Module util
             If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("DeleteIniSection called with section = " & Section & " and FileName = " & FileName, LogType.LOG_TYPE_INFO)
             myHomeSeerSystem.ClearIniSection(Section, FileName)
         Catch ex As Exception
-            Log("Error in DeleteIniSection deleting " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in DeleteIniSection deleting " & Section & " section with error =  " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Sub
 
@@ -743,7 +743,7 @@ Module util
                 InIndex += 1
             Loop
         Catch ex As Exception
-            Log("Error in EncodeURI. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in EncodeURI. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         EncodeURI = Outstring
     End Function
@@ -814,7 +814,7 @@ Module util
                 End If
             Loop
         Catch ex As Exception
-            Log("Error in DecodeURI with URI = " & InString & " and Index= " & InIndex.ToString & " and Value = " & Value.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in DecodeURI with URI = " & InString & " and Index= " & InIndex.ToString & " and Value = " & Value.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         DecodeURI = Outstring
         'If piDebuglevel > DebugLevel.dlErrorsOnly Then log( "DecodeURI: In = " & InString & " out = " & Outstring)
@@ -838,7 +838,7 @@ Module util
                 InIndex += 1
             Loop
         Catch ex As Exception
-            Log("Error in EncodeINIKey. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in EncodeINIKey. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         EncodeINIKey = Outstring
     End Function
@@ -909,7 +909,7 @@ Module util
                 End If
             Loop
         Catch ex As Exception
-            Log("Error in DecodeINIKey with URI = " & InString & " and Index= " & InIndex.ToString & " and Value = " & Value.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in DecodeINIKey with URI = " & InString & " and Index= " & InIndex.ToString & " and Value = " & Value.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         DecodeINIKey = Outstring
         'If piDebuglevel > DebugLevel.dlErrorsOnly Then log( "DecodeURI: In = " & InString & " out = " & Outstring)
@@ -952,10 +952,10 @@ Module util
                 End If
             End While
             inString = Trim(inString)
-            If piDebuglevel > DebugLevel.dlEvents And SomethingGotRemoved Then Log("RemoveControlCharacters updated document to = " & inString.ToString, LogType.LOG_TYPE_INFO)
+            'If piDebuglevel > DebugLevel.dlEvents And SomethingGotRemoved Then Log("RemoveControlCharacters updated document to = " & inString.ToString, LogType.LOG_TYPE_INFO)
             RemoveControlCharacters = inString
         Catch ex As Exception
-            Log("Error in RemoveControlCharacters while retieving document with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in RemoveControlCharacters while retieving document with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Function
 
@@ -1007,7 +1007,7 @@ Module util
                 InIndex += 1
             Loop
         Catch ex As Exception
-            Log("Error in ReplaceSpecialCharacters. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in ReplaceSpecialCharacters. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         ReplaceSpecialCharacters = Outstring
     End Function
@@ -1094,7 +1094,7 @@ Module util
                 End If
             Next
         Catch ex As Exception
-            Log("Error in CheckLocalIPv4Address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in CheckLocalIPv4Address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         Return False
     End Function
@@ -1116,10 +1116,10 @@ Module util
             Next
             If NbrOfIPv4Interfaces > 1 Then
                 ' Houston we have a problem, we need to have the user select one. Put a warning here for time being until I can fix it
-                Log("Warning in GetLocalIPv4Address. Found multiple local IP Addresses. Last one selected = " & GetLocalIPv4Address, LogType.LOG_TYPE_WARNING)
+                If piDebuglevel > DebugLevel.dlOff Then Log("Warning in GetLocalIPv4Address. Found multiple local IP Addresses. Last one selected = " & GetLocalIPv4Address, LogType.LOG_TYPE_WARNING)
             End If
         Catch ex As Exception
-            Log("Error in GetLocalIPv4Address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in GetLocalIPv4Address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Function
 
@@ -1129,7 +1129,7 @@ Module util
         Dim LocalMacAddress As String = ""
         Dim LocalIPAddress = PlugInIPAddress
         If LocalIPAddress = "" Then
-            Log("Error in GetLocalMacAddress trying to get own IP address", LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in GetLocalMacAddress trying to get own IP address", LogType.LOG_TYPE_ERROR)
             Exit Function
         End If
         Try
@@ -1149,7 +1149,7 @@ Module util
                 Next
             Next
         Catch ex As Exception
-            Log("Error in GetLocalMacAddress trying to get own MAC address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in GetLocalMacAddress trying to get own MAC address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in GetLocalMacAddress trying to get own MAC address, none found", LogType.LOG_TYPE_ERROR)
     End Function
@@ -1168,11 +1168,11 @@ Module util
                 netInfo.name = nic.Name
                 netInfo.interfacetype = nic.NetworkInterfaceType.ToString
 
-                If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The MAC address of {0} is {1} with status {2}", nic.Description, nic.GetPhysicalAddress().ToString, nic.OperationalStatus.ToString), LogType.LOG_TYPE_INFO) ' dcor changed level
+                If PIDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The MAC address of {0} is {1} with status {2}", nic.Description, nic.GetPhysicalAddress().ToString, nic.OperationalStatus.ToString), LogType.LOG_TYPE_INFO)
                 If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("  The ID of {0} has name {1} and interface type {2}", nic.Id.ToString, nic.Name, nic.NetworkInterfaceType.ToString), LogType.LOG_TYPE_INFO)
                 If nic.OperationalStatus = Net.NetworkInformation.OperationalStatus.Up Then
                     For Each Ipa In nic.GetIPProperties.UnicastAddresses
-                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                        If PIDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
                         If Ipa.Address.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork Then
                             ' we found an IPv4 IPaddress
                             Dim addrinfo As New NetworkInfoAddrMask
@@ -1190,7 +1190,7 @@ Module util
                         End If
                     Next
                     For Each Ipa In nic.GetIPProperties.AnycastAddresses
-                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The AnyCast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                        If PIDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The AnyCast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
                         Dim addrinfo As New NetworkInfoAddrMask
                         addrinfo.address = Ipa.Address.ToString
                         addrinfo.mask = Ipa.Address.AddressFamily.ToString
@@ -1199,7 +1199,7 @@ Module util
                         netInfo.addressinfo.add(addrinfo)
                     Next
                     For Each Ipa In nic.GetIPProperties.MulticastAddresses
-                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The Multicast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                        If PIDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The Multicast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
                         Dim addrinfo As New NetworkInfoAddrMask
                         addrinfo.address = Ipa.Address.ToString
                         addrinfo.mask = Ipa.Address.AddressFamily.ToString
@@ -1219,7 +1219,7 @@ Module util
                 Return Nothing
             End If
         Catch ex As Exception
-            Log("Error in GetEthernetPorts trying to get own MAC address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in GetEthernetPorts trying to get own MAC address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Return Nothing
         End Try
     End Function
@@ -1233,7 +1233,7 @@ Module util
                 If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("  The ID of {0} has name {1} and interface type {2}", nic.Id.ToString, nic.Name, nic.NetworkInterfaceType.ToString), LogType.LOG_TYPE_INFO)
                 If nic.OperationalStatus = Net.NetworkInformation.OperationalStatus.Up Then
                     For Each Ipa In nic.GetIPProperties.UnicastAddresses
-                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO) ' dcor level
+                        If PIDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
                         If Ipa.Address.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork Then
                             If Ipa.Address.ToString = ipAddress Then Return True
                         End If
@@ -1241,7 +1241,7 @@ Module util
                 End If
             Next
         Catch ex As Exception
-            Log("Error in IsEthernetPortAlive with Interface = " & ipAddress & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in IsEthernetPortAlive with Interface = " & ipAddress & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Return False
         End Try
         Return False
@@ -1267,7 +1267,7 @@ Module util
                 InIndex += 1
             Loop
         Catch ex As Exception
-            Log("Error in EncodeTags. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in EncodeTags. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         EncodeTags = Outstring
     End Function
@@ -1294,15 +1294,21 @@ Module util
                 InIndex += 1
             Loop
         Catch ex As Exception
-            Log("Error in EncodeTagsEx. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in EncodeTagsEx. URI = " & InString & " Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
         EncodeTagsEx = Outstring
+    End Function
+
+    Public Function RemoveDoubleQuotes(ByVal InString As String) As String
+        InString = Trim(InString)
+        If InString = "" Then Return ""
+        Return InString.Replace("""", "&#34;")
     End Function
 
     Public Function FindPairInJSONString(inString As String, inName As String) As Object
         Try
             If inString = "" Or inName = "" Then Return Nothing
-            If piDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inString = " & inString & " and inName = " & inName, LogType.LOG_TYPE_INFO)
+            If PIDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inName = " & inName, LogType.LOG_TYPE_INFO)
             Dim json As New JavaScriptSerializer
             Dim JSONdataLevel1 As Object
             JSONdataLevel1 = json.DeserializeObject(inString)
@@ -1315,12 +1321,12 @@ Module util
                     ElseIf TypeOf (Entry.value) Is Integer Then
                         Return Entry.value.ToString
                     Else
-                        If piDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inString = " & inString & " did not know type for key = " & inName & " in inString = " & inString, LogType.LOG_TYPE_INFO)
+                        'If piDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inString = " & inString & " did not know type for key = " & inName & " in inString = " & inString, LogType.LOG_TYPE_INFO)
                         Return json.Serialize(Entry.value)
                     End If
                 End If
             Next
-            If piDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inString = " & inString & " did not find the key = " & inName & " in inString = " & inString, LogType.LOG_TYPE_WARNING)
+            If PIDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inString = " & inString & " did not find the key = " & inName, LogType.LOG_TYPE_WARNING)
         Catch ex As Exception
             If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in FindPairInJSONString processing response with error = " & ex.Message & " with inString = " & inString & " and inName = " & inName, LogType.LOG_TYPE_ERROR)
         End Try
