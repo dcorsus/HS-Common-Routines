@@ -90,42 +90,42 @@ Class MyUdpClient
         If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUdpClient.ConnectSocket called with localIPAddress = " & myLocalIPAddress & ", local port = " & myLocalIPPort.ToString & " and groupAddress = " & grpAddress, LogType.LOG_TYPE_INFO)
         mGrpAddress = grpAddress
             ConnectSocket = Nothing
-            Try
-                ' Bind And listen on port the specified local port. This constructor creates a socket 
-                ' And binds it to the port on which to receive data. The family 
-                ' parameter specifies that this connection uses an IPv4 address.
-                myUdpClient = New UdpClient() With {
+        Try
+            ' Bind And listen on port the specified local port. This constructor creates a socket 
+            ' And binds it to the port on which to receive data. The family 
+            ' parameter specifies that this connection uses an IPv4 address.
+            myUdpClient = New UdpClient() With {
                     .ExclusiveAddressUse = False,
                     .EnableBroadcast = True,
                     .MulticastLoopback = True
             }
-                myUdpClient.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 4)
-                myUdpClient.Client.SetSocketOption(Net.Sockets.SocketOptionLevel.Socket, Net.Sockets.SocketOptionName.ReuseAddress, True)
+            myUdpClient.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 4)
+            myUdpClient.Client.SetSocketOption(Net.Sockets.SocketOptionLevel.Socket, Net.Sockets.SocketOptionName.ReuseAddress, True)
 
-                If grpAddress <> "" Then
-                    Dim localEP As System.Net.IPEndPoint = New IPEndPoint(IPAddress.Any, myLocalIPPort)
-                    myUdpClient.Client.Bind(localEP)
-                Else
-                    Dim localIPAddress As IPAddress = IPAddress.Parse(myLocalIPAddress)
-                    Dim localIpEndPoint As IPEndPoint = New IPEndPoint(localIPAddress, myLocalIPPort)
-                    myUdpClient.Client.Bind(localIpEndPoint)
-                End If
-                Dim ListenerEndPoint As System.Net.IPEndPoint = myUdpClient.Client.LocalEndPoint
-                myLocalIPPort = ListenerEndPoint.Port
-            Catch ex As Exception
-                If upnpDebuglevel > DebugLevel.dlOff Then LLog("MyUdpClient.ConnectSocket had an error creating a UdpClient with localIPAddress = " & myLocalIPAddress & ", local port = " & myLocalIPPort.ToString & " and groupAddress = " & grpAddress & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If grpAddress <> "" Then
+                Dim localEP As System.Net.IPEndPoint = New IPEndPoint(IPAddress.Any, myLocalIPPort)
+                myUdpClient.Client.Bind(localEP)
+            Else
+                Dim localIPAddress As IPAddress = IPAddress.Parse(myLocalIPAddress)
+                Dim localIpEndPoint As IPEndPoint = New IPEndPoint(localIPAddress, myLocalIPPort)
+                myUdpClient.Client.Bind(localIpEndPoint)
+            End If
+            Dim ListenerEndPoint As System.Net.IPEndPoint = myUdpClient.Client.LocalEndPoint
+            myLocalIPPort = ListenerEndPoint.Port
+        Catch ex As Exception
+            If upnpDebuglevel > DebugLevel.dlOff Then LLog("MyUdpClient.ConnectSocket had an error creating a UdpClient with localIPAddress = " & myLocalIPAddress & ", local port = " & myLocalIPPort.ToString & " and groupAddress = " & grpAddress & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Exit Function
         End Try
-            connectDone.Reset()
-            Try
-                ' Join the specified multicast group using one of the 
-                ' JoinMulticastGroup overloaded methods.
-                If mGrpAddress <> "" Then myUdpClient.JoinMulticastGroup(IPAddress.Parse(mGrpAddress))
-            Catch ex As Exception
-                If upnpDebuglevel > DebugLevel.dlOff Then LLog("MyUdpClient.ConnectSocket had an error joining the multicast group groupAddress = " & mGrpAddress & ", local port = " & myLocalIPPort.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        connectDone.Reset()
+        Try
+            ' Join the specified multicast group using one of the 
+            ' JoinMulticastGroup overloaded methods.
+            If mGrpAddress <> "" Then myUdpClient.JoinMulticastGroup(IPAddress.Parse(mGrpAddress))
+        Catch ex As Exception
+            If upnpDebuglevel > DebugLevel.dlOff Then LLog("MyUdpClient.ConnectSocket had an error joining the multicast group groupAddress = " & mGrpAddress & ", local port = " & myLocalIPPort.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Exit Function
         End Try
-            Return myUdpClient
+        Return myUdpClient
     End Function
 
     Public Function Receive() As Boolean
@@ -158,7 +158,7 @@ Class MyUdpClient
     End Function
 
     Private Sub ReceiveCallback(ByVal ar As IAsyncResult)
-        If upnpDebuglevel > DebugLevel.dlEvents Then LLog("ReceiveCallback called", LogType.LOG_TYPE_INFO)
+        If UPnPDebuglevel > DebugLevel.dlEvents Then LLog("MyUdpClient.ReceiveCallback called", LogType.LOG_TYPE_INFO)
         Try
                 If Not isConnected Then
                     receiveDone.Set()
