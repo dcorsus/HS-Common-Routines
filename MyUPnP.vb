@@ -117,7 +117,7 @@ Public Class MySSDP
         End Set
     End Property
 
-    Public ReadOnly Property GetRXCounters As Integer
+    Public Property MCRXCounters As Integer
         Get
             If MulticastAsyncSocket IsNot Nothing Then
                 Return MulticastAsyncSocket.BytesReceived
@@ -125,6 +125,27 @@ Public Class MySSDP
                 Return -1
             End If
         End Get
+        Set(value As Integer)
+            If MulticastAsyncSocket IsNot Nothing Then
+                MulticastAsyncSocket.BytesReceived = value
+                overallBytesReceivedMulticast = value
+            End If
+        End Set
+    End Property
+
+    Public Property EventRXCounters As Integer
+        Get
+            If MyEventListener IsNot Nothing Then
+                Return MyEventListener.BytesReceived
+            Else
+                Return -1
+            End If
+        End Get
+        Set(value As Integer)
+            If MyEventListener IsNot Nothing Then
+                MyEventListener.BytesReceived = value
+            End If
+        End Set
     End Property
 
     Public WriteOnly Property SelectHdrField As String
@@ -3189,7 +3210,7 @@ Public Class MyUPnPService
             Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
             If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " sent renewal with elapsed time = " & deltaTime.TotalMilliseconds.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
         Catch ex As WebException
-            PrintSocketInfo(RequestUri, "SendRenew with count = " & mySubscribeRenewCounter.ToString, True, ex.Message)
+            PrintSocketInfo(RequestUri, "SendRenew with count = " & mySubscribeRenewCounter.ToString, False, ex.Message)
             isServiceEventsSubscribed = False
             Dim afterTime As DateTime = DateTime.Now
             Dim deltaTime As TimeSpan = afterTime.Subtract(beforeTime)
@@ -3217,7 +3238,7 @@ Public Class MyUPnPService
                     webResponse.Close()
                 Else
                     mySubscribeRenewCounter += 1
-                    If mySubscribeRenewCounter < 10 Then ' dcor test
+                    If mySubscribeRenewCounter < 5 Then ' set to 5 for version 3.1.0.56 on 2/2/2021
                         SetRenewTimer(500)
                         Return True
                     End If
@@ -4779,11 +4800,13 @@ Module UPNPUtils
         If Not mustPrint Or upnpDebuglevel < DebugLevel.dlErrorsOnly Then Exit Sub
         Dim p = ServicePointManager.FindServicePoint(uri)
 
-        If p Is Nothing Then
-            Log("Warning in MySSDP.PrintSocketInfo for URL = " & uri.AbsoluteUri & ", couldn't retrieve the ServicePointManager info, with Error = " & inError, LogType.LOG_TYPE_WARNING)
-            Exit Sub
+        If mustPrint Or upnpDebuglevel > DebugLevel.dlErrorsOnly Then
+            If p Is Nothing Then
+                Log("Warning in MySSDP.PrintSocketInfo for URL = " & uri.AbsoluteUri & ", couldn't retrieve the ServicePointManager info, with Error = " & inError, LogType.LOG_TYPE_WARNING)
+                Exit Sub
+            End If
+            Log("Warning in MySSDP.PrintSocketInfo for URL = " & uri.AbsoluteUri & " from procedure = " & sourceprocedure & ", with connectionname = " & p.ConnectionName & ", ConnectionLimit = " & p.ConnectionLimit.ToString & ", CurrentConnections = " & p.CurrentConnections.ToString & ", with Error = " & inError, LogType.LOG_TYPE_WARNING)
         End If
-        Log("Warning in MySSDP.PrintSocketInfo for URL = " & uri.AbsoluteUri & " from procedure = " & sourceprocedure & ", with connectionname = " & p.ConnectionName & ", ConnectionLimit = " & p.ConnectionLimit.ToString & ", CurrentConnections = " & p.CurrentConnections.ToString & ", with Error = " & inError, LogType.LOG_TYPE_WARNING)
 
     End Sub
 

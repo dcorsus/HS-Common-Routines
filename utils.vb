@@ -1157,7 +1157,7 @@ Module util
     Public Function GetEthernetPorts() As IEnumerable(Of NetworkInfo)
         If piDebuglevel > DebugLevel.dlEvents Then Log("GetEthernetPorts called", LogType.LOG_TYPE_INFO)
         Dim PortInfo As List(Of NetworkInfo) = New List(Of NetworkInfo)
-        Dim Ethernetports As New Dictionary(Of String, String)
+        'Dim Ethernetports As New Dictionary(Of String, String)
         Try
             For Each nic As System.Net.NetworkInformation.NetworkInterface In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
                 Dim netInfo As New NetworkInfo
@@ -1212,7 +1212,7 @@ Module util
                 End If
                 PortInfo.Add(netInfo)
             Next
-            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetEthernetPorts found " & Ethernetports.Count.ToString & " Ethernetports with IPv4 addresses assigned", LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GetEthernetPorts found " & PortInfo.Count.ToString & " Ethernetports with IPv4 addresses assigned", LogType.LOG_TYPE_INFO)
             If PortInfo.Count > 0 Then
                 Return PortInfo
             Else
