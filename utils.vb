@@ -2,6 +2,8 @@
 Imports System.Runtime.Serialization.Formatters
 Imports System.Web.Script.Serialization
 Imports System.Net
+Imports System.Security.Cryptography
+Imports System.Drawing
 
 #If HS3 = "True" Then
 Imports HomeSeerAPI
@@ -22,8 +24,8 @@ Module util
     Public Const LogColorOrange = "#D58000"
     Public Const LogColorGreen = "#008000"
 
-    Private LogFileStreamWriter As StreamWriter = Nothing
-    'Private LogFileFileStream As FileStream = Nothing
+    'Private LogFileStreamWriter As StreamWriter = Nothing
+    Private logFileTextWriter As TextWriter = Nothing
     Private MyLogFileName As String = ""
 
     Public Structure pair
@@ -148,51 +150,50 @@ Module util
         LOG_TYPE_WARNING = 2
     End Enum
 
-    Public Function OpenLogFile(LogFileName As String) As Boolean
-        OpenLogFile = False
+    Public Function OpenLogFile(LogFileName As String, Optional append As Boolean = False) As Boolean
         If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("OpenLogFile called with LogFileName = " & LogFileName, LogType.LOG_TYPE_INFO)
-        If LogFileStreamWriter IsNot Nothing Then
+        If logFileTextWriter IsNot Nothing Then
             CloseLogFile()
         End If
         Try
             If LogFileName <> "" Then
-                If File.Exists(LogFileName) Then
+                If Not append AndAlso File.Exists(LogFileName) Then
                     If File.Exists(LogFileName & ".bak") Then
                         File.Delete(LogFileName & ".bak")
                     End If
                     File.Move(LogFileName, LogFileName & ".bak")
                 End If
                 Try
-                    LogFileStreamWriter = File.AppendText(LogFileName)
-                    LogFileStreamWriter.AutoFlush = True
+                    logFileTextWriter = TextWriter.Synchronized(File.AppendText(LogFileName))
                 Catch ex1 As Exception
                     If Not ImRunningOnLinux Then Console.WriteLine("Exception creating log file with Error = " & ex1.Message, LogType.LOG_TYPE_ERROR)
                 End Try
             End If
-            OpenLogFile = True
             MyLogFileName = LogFileName
+            Return True
         Catch ex As Exception
-            LogFileStreamWriter = Nothing
+            logFileTextWriter = Nothing
             MyLogFileName = ""
             If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in OpenLogFile with Error = " & ex.Message & " and DiskFileName = " & LogFileName, LogType.LOG_TYPE_ERROR)
         End Try
+        Return False
     End Function
 
     Public Sub CloseLogFile()
         If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CloseLogFile called for DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_INFO)
-        If LogFileStreamWriter IsNot Nothing Then
+        If logFileTextWriter IsNot Nothing Then
             Try
-                LogFileStreamWriter.Flush()
-                LogFileStreamWriter.Close()
+                logFileTextWriter.Flush()
+                logFileTextWriter.Close()
             Catch ex As Exception
                 If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error closing debug disk Log with Error = " & ex.Message & " and DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_ERROR)
             End Try
             Try
-                LogFileStreamWriter.Dispose()
+                logFileTextWriter.Dispose()
             Catch ex As Exception
                 If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error disposing debug disk Log with Error = " & ex.Message & " and DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_ERROR)
             End Try
-            LogFileStreamWriter = Nothing
+            logFileTextWriter = Nothing
         End If
         MyLogFileName = ""
     End Sub
@@ -230,12 +231,13 @@ Module util
         End Try
         Try
             If MyLogFileName <> "" And gLogToDisk Then
-                If LogFileStreamWriter IsNot Nothing Then
-                    LogFileStreamWriter.WriteLine(DateAndTime.Now.ToString & " : " & msg)
+                If logFileTextWriter IsNot Nothing Then
+                    'LogFileStreamWriter.WriteLine(DateAndTime.Now.ToString & " : " & msg)
+                    logFileTextWriter.WriteLine(DateAndTime.Now.ToString & " : " & logType.ToString & " - " & msg)
                 End If
             End If
         Catch ex As Exception
-            LogFileStreamWriter = Nothing
+            logFileTextWriter = Nothing
             MyLogFileName = ""
             If Not ImRunningOnLinux Then Console.WriteLine(DateAndTime.Now.ToString & " : " & " Exception in LOG with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             hs.WriteLog(ShortIfaceName & " Error", " Exception in LOG with Error = " & ex.Message)
@@ -361,26 +363,20 @@ Module util
                 Case LogType.LOG_TYPE_ERROR
                     If MsgColor <> "" Then
                         If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, msg, shortIfaceName, MsgColor)
-                        'If Not gLogErrorsOnly Then hs.WriteLogDetail(ShortIfaceName & " Error", msg, MsgColor, "1", "UPnP", ErrorCode)
                     Else
                         If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, msg, shortIfaceName)
-                        'hs.WriteLog(ShortIfaceName & " Error", msg)
                     End If
                 Case LogType.LOG_TYPE_WARNING
                     If MsgColor <> "" Then
                         If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Warning, msg, shortIfaceName, MsgColor)
-                        'If Not gLogErrorsOnly Then hs.WriteLogDetail(ShortIfaceName & " Warning", msg, MsgColor, "0", "UPnP", ErrorCode)
                     Else
                         If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Warning, msg, shortIfaceName)
-                        'If Not gLogErrorsOnly Then hs.WriteLog(ShortIfaceName & " Warning", msg)
                     End If
                 Case LogType.LOG_TYPE_INFO
                     If MsgColor <> "" Then
                         If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Info, msg, shortIfaceName, MsgColor)
-                        'If Not gLogErrorsOnly Then hs.WriteLogDetail(ShortIfaceName, msg, MsgColor, "0", "UPnP", ErrorCode)
                     Else
                         If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Info, msg, shortIfaceName)
-                        'If Not gLogErrorsOnly Then hs.WriteLog(ShortIfaceName, msg)
                     End If
             End Select
         Catch ex As Exception
@@ -388,16 +384,17 @@ Module util
         End Try
         Try
             If MyLogFileName <> "" And gLogToDisk Then
-                If LogFileStreamWriter IsNot Nothing Then
-                    LogFileStreamWriter.WriteLine(DateAndTime.Now.ToString & " : " & msg)
+                If logFileTextWriter IsNot Nothing Then
+                    ' changed 6/19/2021 after getting error Exception in LOG with Error = Probable I/O race condition detected while copying memory. The I/O package is not thread safe by default. In multithreaded applications, a stream must be accessed in a thread-safe way, such as a thread-safe wrapper returned by TextReader's or TextWriter's Synchronized methods. This also applies to classes like StreamWriter and StreamReader.
+                    'LogFileStreamWriter.WriteLine(DateAndTime.Now.ToString & " : " & logType.ToString & " - " & msg)
+                    logFileTextWriter.WriteLine(DateAndTime.Now.ToString & " : " & logType.ToString & " - " & msg)
                 End If
             End If
         Catch ex As Exception
-            LogFileStreamWriter = Nothing
+            logFileTextWriter = Nothing
             MyLogFileName = ""
             If Not ImRunningOnLinux Then Console.WriteLine(DateAndTime.Now.ToString & " : " & " Exception in LOG with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, " Exception in LOG with Error = " & ex.Message, shortIfaceName)
-            'hs.WriteLog(ShortIfaceName & " Error", " Exception in LOG with Error = " & ex.Message)
         End Try
     End Sub
 
@@ -504,14 +501,10 @@ Module util
         End Try
     End Sub
 
-    Public Sub SetFeatureStringByRef(FeatureRef As Integer, NewValue As Object, Update As Boolean)
-        If piDebuglevel > DebugLevel.dlEvents Then Log("SetFeatureStringByRef called with Ref = " & FeatureRef.ToString & " and NewValue = " & NewValue.ToString, LogType.LOG_TYPE_INFO)
+    Public Sub SetFeatureStringByRef(FeatureRef As Integer, NewValue As String, Update As Boolean)
         If FeatureRef = -1 Then Exit Sub
         Try
-            'Dim df As Devices.HsFeature = myHomeSeerSystem.GetFeatureByRef(FeatureRef)
-            'Dim status As Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object) = New Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object)()
-            'status.Add(HomeSeer.PluginSdk.Devices.EProperty.Status, NewValue)
-            'myHomeSeerSystem.UpdateFeatureByRef(FeatureRef, status) ' issue in v.24
+            If piDebuglevel > DebugLevel.dlEvents Then Log("SetFeatureStringByRef called with Ref = " & FeatureRef.ToString & " and NewValue = " & NewValue.ToString, LogType.LOG_TYPE_INFO)
             myHomeSeerSystem.UpdateFeatureValueStringByRef(FeatureRef, NewValue.ToString)
         Catch ex As Exception
             If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in SetFeatureStringByRef called with Ref = " & FeatureRef.ToString & " and NewValue = " & NewValue.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -556,12 +549,11 @@ Module util
         End Try
     End Sub
 
-    Public Function GetPicture(ByVal url As String) As Image
+    Public Function GetPicture(ByVal url As String) As System.Drawing.Image
         ' Get the picture at a given URL.
         Dim web_client As New WebClient With {
             .UseDefaultCredentials = True                         ' added 5/2/2019
             }
-        ' web_client.Credentials = CredentialCache.DefaultCredentials     ' added 5/2/2019
         GetPicture = Nothing
         Try
             url = Trim(url)
@@ -695,6 +687,59 @@ Module util
 
 
     End Sub
+
+    Public Function extractVolumeAttributes(value As String) As VolumeAttributes
+        If value.Trim.Length = 0 Then Return Nothing
+        Try
+            Dim returnInfo As New VolumeAttributes
+            Dim useHSRef As Integer = value.ToUpper.IndexOf("$DVR:")   ' added on 10/10/2021 in v4.0.1.4
+            If useHSRef <> -1 Then
+                value = value.Substring(5)  ' remove the $DVR:
+                Dim tempRef As String = value
+                value = If(myHomeSeerSystem.GetFeatureByRef(value)?.Value, 0)
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(" extractVolumeAttributes retrieved device value = " & value & " for devRef = " & tempRef, LogType.LOG_TYPE_INFO)
+            Else
+                useHSRef = value.ToUpper.IndexOf("$DSR:")
+                If useHSRef <> -1 Then
+                    value = value.Substring(5)  ' remove the $DSR:
+                    Dim tempRef As String = value
+                    value = If(myHomeSeerSystem.GetFeatureByRef(value)?.Status, 0)
+                    If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(" extractVolumeAttributes retrieved device value = " & value & " for devRef = " & tempRef, LogType.LOG_TYPE_INFO)
+                End If
+            End If
+            Dim gPosition As Integer = value.IndexOf("G")
+            If gPosition <> -1 Then
+                value = value.Remove(gPosition, 1)
+                returnInfo.applyToGroup = True
+            End If
+            gPosition = value.IndexOf("g")
+            If gPosition <> -1 Then
+                value = value.Remove(gPosition, 1)
+                returnInfo.applyToGroup = True
+            End If
+            Dim plusPosition As Integer = value.IndexOf("+")
+            If plusPosition <> -1 Then
+                value = value.Remove(plusPosition, 1)
+                returnInfo.relative = True
+            End If
+            Dim minusPosition As Integer = value.IndexOf("-")
+            If minusPosition <> -1 Then
+                value = value.Remove(minusPosition, 1)
+                returnInfo.relative = True
+            End If
+            value = value.Trim
+            If value <> "" Then
+                returnInfo.volume = CInt(value)
+            Else
+                Return Nothing
+            End If
+            If minusPosition <> -1 Then returnInfo.volume = -returnInfo.volume
+            Return returnInfo
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in extractVolumeAttributes for value = " & value & " with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            Return Nothing
+        End Try
+    End Function
 #End If
 
     Public Function EncodeURI(ByVal InString As String) As String
@@ -1399,5 +1444,85 @@ Module util
         PrepareForQuery = inString.Replace("'", "''")
     End Function
 
+    Public Function EncodeBlanksinURI(ByVal InString As String) As String
+        Return InString.Replace(" ", "%20")
+    End Function
+
+    Public NotInheritable Class Simple3Des
+        Private TripleDes As New TripleDESCryptoServiceProvider
+
+        Sub New(ByVal key As String)
+            ' Initialize the crypto provider.
+            TripleDes.Key = TruncateHash(key, TripleDes.KeySize \ 8)
+            TripleDes.IV = TruncateHash("", TripleDes.BlockSize \ 8)
+        End Sub
+
+        Private Function TruncateHash(ByVal key As String, ByVal length As Integer) As Byte()
+            Try
+                Dim sha1 As New SHA1CryptoServiceProvider
+                ' Hash the key.
+                Dim keyBytes() As Byte =
+                    System.Text.Encoding.Unicode.GetBytes(key)
+                Dim hash() As Byte = sha1.ComputeHash(keyBytes)
+
+                ' Truncate or pad the hash.
+                ReDim Preserve hash(length - 1)
+                Return hash
+            Catch ex As Exception
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in TruncateHash with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            End Try
+            Return Nothing
+        End Function
+
+        Public Function EncryptData(ByVal plaintext As String) As String
+            ' Convert the plaintext string to a byte array.
+            If plaintext = "" Then
+                If piDebuglevel > DebugLevel.dlEvents Then Log("EncryptData , no data", LogType.LOG_TYPE_INFO)
+                Return ""
+            End If
+            Try
+                Dim plaintextBytes() As Byte = System.Text.Encoding.Unicode.GetBytes(plaintext)
+                ' Create the stream.
+                Dim ms As New System.IO.MemoryStream
+                ' Create the encoder to write to the stream.
+                Dim encStream As New CryptoStream(ms,
+                    TripleDes.CreateEncryptor(),
+                    System.Security.Cryptography.CryptoStreamMode.Write)
+                ' Use the crypto stream to write the byte array to the stream.
+                encStream.Write(plaintextBytes, 0, plaintextBytes.Length)
+                encStream.FlushFinalBlock()
+                ' Convert the encrypted stream to a printable string.
+                Return Convert.ToBase64String(ms.ToArray)
+            Catch ex As Exception
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in EncryptData with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            End Try
+            Return ""
+        End Function
+
+        Public Function DecryptData(ByVal encryptedtext As String) As String
+            ' Convert the encrypted text string to a byte array.
+            If encryptedtext = "" Then
+                If piDebuglevel > DebugLevel.dlEvents Then Log("DecryptData , no data", LogType.LOG_TYPE_INFO)
+                Return ""
+            End If
+            Try
+                Dim encryptedBytes() As Byte = Convert.FromBase64String(encryptedtext)
+                ' Create the stream.
+                Dim ms As New System.IO.MemoryStream
+                ' Create the decoder to write to the stream.
+                Dim decStream As New CryptoStream(ms,
+                    TripleDes.CreateDecryptor(),
+                    System.Security.Cryptography.CryptoStreamMode.Write)
+                ' Use the crypto stream to write the byte array to the stream.
+                decStream.Write(encryptedBytes, 0, encryptedBytes.Length)
+                decStream.FlushFinalBlock()
+                ' Convert the plaintext stream to a string.
+                Return System.Text.Encoding.Unicode.GetString(ms.ToArray)
+            Catch ex As Exception
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in DecryptData with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            End Try
+            Return ""
+        End Function
+    End Class
 
 End Module

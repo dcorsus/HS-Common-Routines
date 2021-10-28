@@ -62,6 +62,15 @@ Public Class MySSDP
     Private selectionHeaderValue As String = ""
     Private docRetrievalDelay As Integer = 5000 ' default of 5 seconds plus random value. For a Sonos Move we will overwrite this
 
+    Public nbrOfMessageCounter As Integer = 0
+    Public nbrOfNotifyAliveMessageCounter As Integer = 0
+    Public nbrOfSearchMessageCounter As Integer = 0
+    Public nbrOfNotifyByeByeMessageCounter As Integer = 0
+    Public nbrOfHTTPMessageCounter As Integer = 0
+    Public nbrOfUnknownMessageCounter As Integer = 0
+    Private MyNbrOf412Errors As Integer = 0
+
+
     Public Property DebugParams As String
         Get
             Return instanceDebugParams
@@ -163,6 +172,28 @@ Public Class MySSDP
     Public WriteOnly Property setDocRetrievalDelay As Integer
         Set(value As Integer)
             docRetrievalDelay = value
+        End Set
+    End Property
+
+    Public Property nbrOf412Errors As Integer
+        Get
+            Dim ErrResult As Integer = 0
+            If MyDevicesLinkedList IsNot Nothing Then
+                For Each dev As MyUPnPDevice In MyDevicesLinkedList
+                    ErrResult += dev.NbrOf412Errors
+                Next
+            End If
+            Return ErrResult
+        End Get
+        Set(value As Integer)
+            MyNbrOf412Errors = value
+            If value = 0 Then
+                If MyDevicesLinkedList IsNot Nothing Then
+                    For Each dev As MyUPnPDevice In MyDevicesLinkedList
+                        dev.NbrOf412Errors = 0
+                    Next
+                End If
+            End If
         End Set
     End Property
 
@@ -380,6 +411,7 @@ Public Class MySSDP
         If upnpDebuglevel > DebugLevel.dlEvents Then LLog("MySSDP.HandleSSDPDataReceived received Line = " & e & " and EP = " & ReceiveEP.ToString, LogType.LOG_TYPE_INFO, LogColorNavy)
         'If UPnPDebuglevel > DebugLevel.dlErrorsOnly Then LLog("HandleSSDPDataReceived received Line.length = " & e.Length, LogType.LOG_TYPE_WARNING, LogColorNavy) 
         'If UPnPDebuglevel > DebugLevel.dlOff LLog("MySSDP.HandleSSDPDataReceived received Line = " & e & " and EP = " & ReceiveEP.ToString, LogType.LOG_TYPE_INFO, LogColorNavy) 
+        If MyNotificationQueue Is Nothing Then Exit Sub
         Try
             SyncLock (MyNotificationQueue)
                 MyNotificationQueue.Enqueue(e & "receiveep:" & ReceiveEP.ToString & vbCrLf & vbCrLf)
@@ -392,13 +424,6 @@ Public Class MySSDP
         e = Nothing
         ReceiveEP = Nothing
     End Sub
-
-    Dim NbrOfMessageCounter As Integer = 0
-    Dim NbrOfNotifyAliveMessageCounter As Integer = 0
-    Dim NbrOfSearchMessageCounter As Integer = 0
-    Dim NbrOfNotifyByeByeMessageCounter As Integer = 0
-    Dim NbrOfHTTPMessageCounter As Integer = 0
-    Dim NbrOfUnknownMessageCounter As Integer = 0
 
     Private Sub TreatNotficationQueue()
         If NotificationHandlerReEntryFlag Then
@@ -1570,6 +1595,7 @@ Public Class MyUPnPDevice
     Private instanceDebugParams As String = ""
     Private instanceDebugFlag As Boolean = True
     Public sonosReason As String = ""
+    Private MyNbrOf412Errors As Integer = 0
 
     Public Property DebugParams As String
         Get
@@ -1681,6 +1707,54 @@ Public Class MyUPnPDevice
         End Set
     End Property
 
+    Public Property NbrOf412Errors As String
+        Get
+            Dim errorResult As Integer = 0
+            If Services IsNot Nothing Then
+                For Each serv As MyUPnPService In Services
+                    If serv IsNot Nothing Then
+                        errorResult += serv.nbrOf412Errors
+                    End If
+                Next
+            End If
+            If Children IsNot Nothing Then
+                For Each child As MyUPnPDevice In Children
+                    If Services IsNot Nothing Then
+                        For Each serv As MyUPnPService In Services
+                            If serv IsNot Nothing Then
+                                errorResult += serv.nbrOf412Errors
+                            End If
+                        Next
+                    End If
+                Next
+            End If
+            Return errorResult
+        End Get
+        Set(value As String)
+            MyNbrOf412Errors = value
+            If value = 0 Then
+                If Services IsNot Nothing Then
+                    For Each serv As MyUPnPService In Services
+                        If serv IsNot Nothing Then
+                            serv.nbrOf412Errors = 0 ' reset the counter
+                        End If
+                    Next
+                End If
+                If Children IsNot Nothing Then
+                    For Each child As MyUPnPDevice In Children
+                        If Services IsNot Nothing Then
+                            For Each serv As MyUPnPService In Services
+                                If serv IsNot Nothing Then
+                                    serv.nbrOf412Errors = 0
+                                End If
+                            Next
+                        End If
+                    Next
+                End If
+            End If
+        End Set
+    End Property
+
     Public Sub New(inStrLocation As String, docRetrievalDelay As Integer, inRef As MySSDP)
         MyBase.New()
         If upnpDebuglevel > DebugLevel.dlEvents Then LLog("MyUPnPDevice.New called for UDN = " & UniqueDeviceName & " with inStrLocation = " & inStrLocation.ToString & " and docRetrievalDelay = " & docRetrievalDelay.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
@@ -1772,7 +1846,7 @@ Public Class MyUPnPDevice
     End Sub
 
     Public Sub Dispose(RemoveSelf As Boolean)
-        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUPnPDevice.Dispose called for UDN = " & UniqueDeviceName & " and RemoveSelf = " & RemoveSelf.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
+        If upnpDebuglevel > DebugLevel.dlOff Then LLog("MyUPnPDevice.Dispose called for UDN = " & UniqueDeviceName & " and RemoveSelf = " & RemoveSelf.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
         AliveInLastScan = False
         Location = ""
         ApplicationURL = ""
@@ -2104,11 +2178,11 @@ Public Class MyUPnPDevice
                 Try
                     DeviceXML.LoadXml(DeviceNode.OuterXml)
                     Try
-                        NewDevice.Type = If(DeviceXML.GetElementsByTagName("deviceType").Item(0)?.InnerText, "")
+                        NewDevice.Type = If(DeviceXML.GetElementsByTagName("deviceType")?.Item(0)?.InnerText, "")
                     Catch ex As Exception
                     End Try
                     Try
-                        NewDevice.FriendlyName = If(DeviceXML.GetElementsByTagName("friendlyName").Item(0)?.InnerText, "")
+                        NewDevice.FriendlyName = If(DeviceXML.GetElementsByTagName("friendlyName")?.Item(0)?.InnerText, "")
                         If IsRoot Then
                             If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUPnPDevice.ProcessDeviceInfo retrieved FriendlyName " & NewDevice.FriendlyName, LogType.LOG_TYPE_INFO, LogColorGreen)
                         Else
@@ -2117,27 +2191,27 @@ Public Class MyUPnPDevice
                     Catch ex As Exception
                     End Try
                     Try
-                        NewDevice.ManufacturerName = If(DeviceXML.GetElementsByTagName("manufacturer").Item(0)?.InnerText, "")
+                        NewDevice.ManufacturerName = If(DeviceXML.GetElementsByTagName("manufacturer")?.Item(0)?.InnerText, "")
                     Catch ex As Exception
                     End Try
                     Try
-                        NewDevice.ManufacturerURL = If(DeviceXML.GetElementsByTagName("manufacturerURL").Item(0)?.InnerText, "")
+                        NewDevice.ManufacturerURL = If(DeviceXML.GetElementsByTagName("manufacturerURL")?.Item(0)?.InnerText, "")
                     Catch ex As Exception
                     End Try
                     Try
-                        NewDevice.ModelNumber = If(DeviceXML.GetElementsByTagName("modelNumber").Item(0)?.InnerText, "")
+                        NewDevice.ModelNumber = If(DeviceXML.GetElementsByTagName("modelNumber")?.Item(0)?.InnerText, "")
                     Catch ex As Exception
                     End Try
                     Try
-                        NewDevice.ModelName = If(DeviceXML.GetElementsByTagName("modelName").Item(0)?.InnerText, "")
+                        NewDevice.ModelName = If(DeviceXML.GetElementsByTagName("modelName")?.Item(0)?.InnerText, "")
                     Catch ex As Exception
                     End Try
                     Try
-                        NewDevice.ModelURL = If(DeviceXML.GetElementsByTagName("modelURL").Item(0)?.InnerText, "")
+                        NewDevice.ModelURL = If(DeviceXML.GetElementsByTagName("modelURL")?.Item(0)?.InnerText, "")
                     Catch ex As Exception
                     End Try
                     Try
-                        Dim swGenString As String = If(DeviceXML.GetElementsByTagName("swGen").Item(0)?.InnerText, "")
+                        Dim swGenString As String = If(DeviceXML.GetElementsByTagName("swGen")?.Item(0)?.InnerText, "")
                         If swGenString <> "" Then NewDevice.swGen = CInt(swGenString)
                     Catch ex As Exception
                     End Try
@@ -2147,7 +2221,7 @@ Public Class MyUPnPDevice
                         Else
                             NewDevice.IsRootDevice = False
                         End If
-                        Dim NewUDN As String = If(DeviceXML.GetElementsByTagName("UDN").Item(0)?.InnerText, "")
+                        Dim NewUDN As String = If(DeviceXML.GetElementsByTagName("UDN")?.Item(0)?.InnerText, "")
                         If NewDevice.UniqueDeviceName <> "" And NewDevice.UniqueDeviceName <> NewUDN Then
                             If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUPnPDevice.ProcessDeviceInfo for device = " & NewDevice.UniqueDeviceName & " has different UDN in device document UDN = " & NewUDN, LogType.LOG_TYPE_WARNING)
                         End If
@@ -2248,7 +2322,7 @@ Public Class MyUPnPDevice
                             If Trim(NewChildDeviceNode.OuterXml) <> "" Then
                                 Dim NewChildDeviceXMLDocument As New XmlDocument
                                 NewChildDeviceXMLDocument.LoadXml(NewChildDeviceNode.OuterXml)
-                                Dim ChildUDN As String = If(NewChildDeviceXMLDocument.GetElementsByTagName("UDN").Item(0)?.InnerText, "")
+                                Dim ChildUDN As String = If(NewChildDeviceXMLDocument.GetElementsByTagName("UDN")?.Item(0)?.InnerText, "")
                                 If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUPnPDevice.ProcessDeviceInfo for device = " & NewDevice.UniqueDeviceName & " found a child device in the devicelist with UDN = " & ChildUDN, LogType.LOG_TYPE_INFO)
                                 Dim NewChildDevice As MyUPnPDevice
                                 If NewDevice.Children Is Nothing Then
@@ -2348,11 +2422,11 @@ Public Class MyUPnPDevice
                     Try
                         If Trim(Icon.OuterXml) <> "" Then
                             IConXML.LoadXml(Icon.OuterXml)
-                            Dim mimeType As String = If(IConXML.GetElementsByTagName("mimetype").Item(0)?.InnerText, "")
-                            Dim Width As String = If(IConXML.GetElementsByTagName("width").Item(0)?.InnerText, "")
-                            Dim Height As String = If(IConXML.GetElementsByTagName("height").Item(0)?.InnerText, "")
-                            Dim depth As String = If(IConXML.GetElementsByTagName("depth").Item(0)?.InnerText, "")
-                            Dim URL As String = If(IConXML.GetElementsByTagName("url").Item(0)?.InnerText, "")
+                            Dim mimeType As String = If(IConXML.GetElementsByTagName("mimetype")?.Item(0)?.InnerText, "")
+                            Dim Width As String = If(IConXML.GetElementsByTagName("width")?.Item(0)?.InnerText, "")
+                            Dim Height As String = If(IConXML.GetElementsByTagName("height")?.Item(0)?.InnerText, "")
+                            Dim depth As String = If(IConXML.GetElementsByTagName("depth")?.Item(0)?.InnerText, "")
+                            Dim URL As String = If(IConXML.GetElementsByTagName("url")?.Item(0)?.InnerText, "")
                             If FirstURL = "" Then FirstURL = URL
                             If mimeType = EncodeingFormat And Width = SizeX And Height = SizeY And depth = BitDepth Then
                                 IconURL = MakeURLWhole(URL)
@@ -2607,7 +2681,7 @@ Public Class MyUPnPService
     Private mySubscribeRenewCounter As Integer = 0
     Private myBootId As String = ""
 
-    ' this is new as of Sonosv4 to further enhance debugging
+    ' this is new as of Sonos4 to further enhance debugging
     Public hasServiceXMLRetrieved As Boolean = False
     Public hasServiceStateRetrieved As Boolean = False
     Public hasActionListRetrieved As Boolean = False
@@ -2634,6 +2708,7 @@ Public Class MyUPnPService
     Friend WithEvents MyServiceDiedTimer As Timers.Timer
     Private instanceDebugParams As String = ""
     Private instanceDebugFlag As Boolean = True
+    Private MyNbrOf412Errors As Integer = 0
 
     Public Property DebugParams As String
         Get
@@ -2697,26 +2772,26 @@ Public Class MyUPnPService
         Try
             ServiceDocument.LoadXml(ServiceXML)
             Try
-                MyServiceTypeIdentifier = If(ServiceDocument.GetElementsByTagName("serviceType").Item(0)?.InnerText, "")
+                MyServiceTypeIdentifier = If(ServiceDocument.GetElementsByTagName("serviceType")?.Item(0)?.InnerText, "")
                 If Trim(LCase(MyServiceTypeIdentifier)) = "(null)" Then ' added this to prevent pesky HomeSeer fault in Service definition to generate error each 20 seconds or so
                     Exit Sub
                 End If
             Catch ex As Exception
             End Try
             Try
-                MyServiceID = If(ServiceDocument.GetElementsByTagName("serviceId").Item(0)?.InnerText, "")
+                MyServiceID = If(ServiceDocument.GetElementsByTagName("serviceId")?.Item(0)?.InnerText, "")
             Catch ex As Exception
             End Try
             Try
-                MycontrolURL = MakeURLWhole(If(ServiceDocument.GetElementsByTagName("controlURL").Item(0)?.InnerText, ""))
+                MycontrolURL = MakeURLWhole(If(ServiceDocument.GetElementsByTagName("controlURL")?.Item(0)?.InnerText, ""))
             Catch ex As Exception
             End Try
             Try
-                MyeventSubURL = MakeURLWhole(If(ServiceDocument.GetElementsByTagName("eventSubURL").Item(0)?.InnerText, ""))
+                MyeventSubURL = MakeURLWhole(If(ServiceDocument.GetElementsByTagName("eventSubURL")?.Item(0)?.InnerText, ""))
             Catch ex As Exception
             End Try
             Try
-                MySCPDURL = MakeURLWhole(If(ServiceDocument.GetElementsByTagName("SCPDURL").Item(0)?.InnerText, ""))
+                MySCPDURL = MakeURLWhole(If(ServiceDocument.GetElementsByTagName("SCPDURL")?.Item(0)?.InnerText, ""))
             Catch ex As Exception
             End Try
             If MySCPDURL <> "" Then
@@ -2814,7 +2889,7 @@ Public Class MyUPnPService
 
         Try
             ' retrieve the ServiceStateTable list
-            Dim ServiceStateXML As String = If(ServiceXMLDocument.GetElementsByTagName("serviceStateTable").Item(0)?.OuterXml, "")
+            Dim ServiceStateXML As String = If(ServiceXMLDocument.GetElementsByTagName("serviceStateTable")?.Item(0)?.OuterXml, "")
             Dim ServiceStateXMLDocument As New XmlDocument
             ServiceStateXMLDocument.LoadXml(ServiceStateXML)
             _serviceStateTable = ServiceStateXMLDocument.GetElementsByTagName("stateVariable")
@@ -2845,7 +2920,7 @@ Public Class MyUPnPService
 
         Try
             ' retrieve the action list
-            Dim ActionXML As String = If(ServiceXMLDocument.GetElementsByTagName("actionList").Item(0)?.OuterXml, "")
+            Dim ActionXML As String = If(ServiceXMLDocument.GetElementsByTagName("actionList")?.Item(0)?.OuterXml, "")
             Dim ActionXMLDocument As New XmlDocument
             ActionXMLDocument.LoadXml(ActionXML)
             _actionList = ActionXMLDocument.GetElementsByTagName("action")
@@ -2944,9 +3019,9 @@ Public Class MyUPnPService
                                 ActionListXML.LoadXml(Action.OuterXml)
                                 Dim NewAction As New MyUPnPAction
                                 Try
-                                    NewAction.name = If(ActionListXML.GetElementsByTagName("name").Item(0)?.InnerText, "")
+                                    NewAction.name = If(ActionListXML.GetElementsByTagName("name")?.Item(0)?.InnerText, "")
                                     Try
-                                        NewAction.argumentList = ActionListXML.GetElementsByTagName("argumentList").ItemOf(0)?.OuterXml
+                                        NewAction.argumentList = ActionListXML.GetElementsByTagName("argumentList")?.ItemOf(0)?.OuterXml
                                     Catch ex As Exception
                                     End Try
                                     ActionList.Add(NewAction)
@@ -2993,6 +3068,15 @@ Public Class MyUPnPService
         End Get
         Set(Value As String)
             MyServiceTypeIdentifier = Value
+        End Set
+    End Property
+
+    Property nbrOf412Errors As Integer
+        Get
+            Return MyNbrOf412Errors
+        End Get
+        Set(value As Integer)
+            MyNbrOf412Errors = value
         End Set
     End Property
 
@@ -3223,6 +3307,7 @@ Public Class MyUPnPService
                         strmRdr.Dispose()
                         If webResponse.StatusCode = HttpStatusCode.PreconditionFailed Then
                             ' actually upon further study, I found it if I use a laptop, put it in sleep mode, wake it, I get this error. It means the SID is not valid anymore so we need to reconnect
+                            nbrOf412Errors += 1
                             If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("Unsuccesfull MyUPnPService.SendRenew for ServiceID = " & MySCPDURL & " because code 412. Typically means the client had a problem communicating an event and released the subscription. We will try to re-subscribe. Network issue?", LogType.LOG_TYPE_WARNING)
                             Try
                                 If AddCallback(Nothing) Then
@@ -3475,7 +3560,7 @@ Public Class MyUPnPService
                                     StateVariable = Nothing
                                 End Try
                                 ReDim Preserve ArgElement(Index * 2 + 1)
-                                ArgElement(Index * 2) = If(ArgumentXML.GetElementsByTagName("name").Item(Index)?.InnerText, "")
+                                ArgElement(Index * 2) = If(ArgumentXML.GetElementsByTagName("name")?.Item(Index)?.InnerText, "")
                                 If StateVariable IsNot Nothing Then
                                     If StateVariable.dataType = VariableDataTypes.vdtBoolean Then
                                         If (Arg.ToString = "1") Or (Arg.ToString.ToLower = "true") Then
@@ -3689,6 +3774,20 @@ Public Class MyUPnPService
         End Try
     End Sub
 
+    Public Function GetServiceStateTable() As Dictionary(Of String, String)
+        If ServiceStateTable Is Nothing Then Return Nothing
+        Dim serviceTable_ As New Dictionary(Of String, String)
+        Try
+            For Each entry As MyStateVariable In ServiceStateTable
+                If entry.hasValue Then
+                    serviceTable_.Add(entry.name, entry.value)
+                End If
+            Next
+        Catch ex As Exception
+        End Try
+        Return serviceTable_
+    End Function
+
     Private Sub TreatEventQueue()
         If EventHandlerReEntryFlag Then
             MissedEventHandlerFlag = True
@@ -3751,8 +3850,11 @@ Public Class MyUPnPService
 
                 If SEQ <> "" Then
                     If Val(SEQ) <> LastEventSequenceNumber + 1 Then
-                        If upnpDebuglevel > DebugLevel.dlEvents Then LLog("MyUPnPService.TreatEventQueue for ServiceID = " & MySCPDURL & " received an out of sequence event with Seq = " & SEQ & " and Expected = " & (LastEventSequenceNumber + 1).ToString & " and Data = " & NewEvent, LogType.LOG_TYPE_WARNING)
-                        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUPnPService.TreatEventQueue for ServiceID = " & MySCPDURL & " received an out of sequence event with Seq = " & SEQ & " and Expected = " & (LastEventSequenceNumber + 1).ToString, LogType.LOG_TYPE_WARNING)
+                        If upnpDebuglevel > DebugLevel.dlEvents Then
+                            LLog("MyUPnPService.TreatEventQueue for ServiceID = " & MySCPDURL & " received an out of sequence event with Seq = " & SEQ & " and Expected = " & (LastEventSequenceNumber + 1).ToString & " and Data = " & NewEvent, LogType.LOG_TYPE_WARNING)
+                        ElseIf upnpDebuglevel > DebugLevel.dlErrorsOnly Then
+                            LLog("MyUPnPService.TreatEventQueue for ServiceID = " & MySCPDURL & " received an out of sequence event with Seq = " & SEQ & " and Expected = " & (LastEventSequenceNumber + 1).ToString, LogType.LOG_TYPE_WARNING)
+                        End If
                     End If
                     LastEventSequenceNumber = Val(SEQ)
                 End If
@@ -3781,7 +3883,11 @@ Public Class MyUPnPService
                                                     For Each VariableName As XmlNode In grandchild.ChildNodes
                                                         If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUPnPService.TreatEventQueue raised event for ServiceID = " & MySCPDURL & ", NotifyData = " & NotifyData & ", DeviceUDN = " & MyDeviceUDN & ", IPAddress = " & MyIPAddress & " and Event = " & VariableName.LocalName & ", Event InfoLength = " & VariableName.InnerXml.Length.ToString, LogType.LOG_TYPE_INFO, LogColorGreen)
                                                         UpdateStateVariable(VariableName.LocalName, Trim(System.Web.HttpUtility.HtmlDecode(VariableName.InnerXml)))
-                                                        RaiseEvent StateChange(VariableName.LocalName, Trim(System.Web.HttpUtility.HtmlDecode(VariableName.InnerXml)))
+                                                        Try
+                                                            RaiseEvent StateChange(VariableName.LocalName, Trim(System.Web.HttpUtility.HtmlDecode(VariableName.InnerXml)))
+                                                        Catch ex As Exception
+                                                            If upnpDebuglevel > DebugLevel.dlOff Then LLog("MyUPnPService.TreatEventQueue for ServiceID = " & MySCPDURL & " had an error raising event = " & VariableName.LocalName & " with Data = " & Trim(System.Web.HttpUtility.HtmlDecode(VariableName.InnerXml)) & " with Error = " & ex.Message, LogType.LOG_TYPE_WARNING)
+                                                        End Try
                                                     Next
                                                 End If
                                             End If
