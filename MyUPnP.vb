@@ -25,7 +25,7 @@ Public Class MySSDP
     Private MulticastAsyncSocket As MyUdpClient = Nothing
     Private MyMulticastClient As UdpClient 'Socket
 
-    Private MyUPnPMCastIPAddress As String = "239.255.255.250"
+    Private Const MyUPnPMCastIPAddress As String = "239.255.255.250"
     Private MyUPnPMCastPort As Integer = 1900
     Private MyDevicesLinkedList As New MyUPnPDevices
     Private myDiscoverUdpPort As Integer = 0
@@ -420,9 +420,6 @@ Public Class MySSDP
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then LLog("Error in MySSDP.HandleSSDPDataReceived queuing the Notification = " & e.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_INFO)
         End Try
-        sender = Nothing
-        e = Nothing
-        ReceiveEP = Nothing
     End Sub
 
     Private Sub TreatNotficationQueue()
@@ -1158,8 +1155,6 @@ Public Class MySSDP
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then LLog("Error in MySSDP.MyNotifyTimer_Elapsed with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
-        e = Nothing
-        sender = Nothing
     End Sub
 
     Public Function GetAllDevices() As MyUPnPDevices
@@ -1488,8 +1483,6 @@ Public Class MySSDP
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then LLog("Error in MySSDP.MyControllerTimer_Elapsed with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
-        e = Nothing
-        sender = Nothing
     End Sub
 
     Private Sub MyAuditTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles myAuditTimer.Elapsed
@@ -1532,8 +1525,6 @@ Public Class MySSDP
                 If upnpDebuglevel > DebugLevel.dlOff Then LLog("MySSDP.MyAuditTimer_Elapsed called and had error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             End Try
         End If
-        e = Nothing
-        sender = Nothing
     End Sub
 
 
@@ -2013,7 +2004,6 @@ Public Class MyUPnPDevice
         IPInfo = ExtractIPInfo(inLocation)
         IPAddress = IPInfo.IPAddress
         IPPort = IPInfo.IPPort
-        IPInfo = Nothing
         MyTimeOutValue = 1800 'TimeoutValue = 1800
         SearchPort = "1900"
         Randomize()
@@ -2439,7 +2429,6 @@ Public Class MyUPnPDevice
                         If upnpDebuglevel > DebugLevel.dlOff Then LLog("Error in get MyUPnPDevice.IconURL for UDN = " & UniqueDeviceName & " for EncodeingFormat = " & EncodeingFormat & ", SizeX = " & SizeX.ToString & ", SizeY = " & SizeY.ToString & ", BitDepth = " & BitDepth.ToString & "with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
                     End Try
                 Next
-                IConXML = Nothing
             Else
                 If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUPnPDevice.IconURL for UDN = " & UniqueDeviceName & " has no Icons. Was called with EncodeingFormat = " & EncodeingFormat & ", SizeX = " & SizeX.ToString & ", SizeY = " & SizeY.ToString & ", BitDepth = " & BitDepth.ToString, LogType.LOG_TYPE_WARNING)
             End If
@@ -2497,8 +2486,6 @@ Public Class MyUPnPDevice
         If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUPnPDevice.MySubscribeRenewTimer_Elapsed called for UDN = " & UniqueDeviceName & " and IP = " & IPAddress & " and Name = " & FriendlyName, LogType.LOG_TYPE_WARNING)
         'If UPnPDebuglevel > DebugLevel.dlOff LLog("MyUPnPDevice.MySubscribeRenewTimer_Elapsed called for UDN = " & UniqueDeviceName & " and IP = " & IPAddress & " and Name = " & FriendlyName, LogType.LOG_TYPE_WARNING)
         SomePartOfDeviceDied(Not IsRootDevice, UniqueDeviceName)
-        e = Nothing
-        sender = Nothing
     End Sub
 
     Private Sub MyRetrieveDeviceInfoTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles MyRetrieveDeviceInfoTimer.Elapsed
@@ -2508,8 +2495,6 @@ Public Class MyUPnPDevice
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then LLog("Error in MyUPnPDevice.MyRetrieveDeviceInfoTimer_Elapsed called for UDN = " & UniqueDeviceName & " with Error = " & ex.Message, LogType.LOG_TYPE_INFO)
         End Try
-        e = Nothing
-        sender = Nothing
     End Sub
 
     Private Sub MyEventTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles MyEventTimer.Elapsed
@@ -2539,11 +2524,6 @@ Public Class MyUPnPDevice
             Dispose(True)
         Catch ex As Exception
         End Try
-
-
-
-        e = Nothing
-        sender = Nothing
     End Sub
 
     ' This is a local check before logging is called
@@ -4061,8 +4041,6 @@ Public Class MyUPnPService
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then LLog("Error in MyUPnPService.MySubscribeRenewTimer_Elapsed called for ServiceID = " & MySCPDURL & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
-        e = Nothing
-        sender = Nothing
     End Sub
 
     Private Sub MyMissedRenewTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles MyMissedRenewTimer.Elapsed
@@ -4072,8 +4050,6 @@ Public Class MyUPnPService
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then LLog("Error in MyUPnPService.MyMissedRenewTimer_Elapsed called for ServiceID = " & MySCPDURL & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
-        e = Nothing
-        sender = Nothing
     End Sub
 
     Private Sub MyEventTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles MyEventTimer.Elapsed
@@ -4082,8 +4058,6 @@ Public Class MyUPnPService
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("Error in MyUPnPService.MyEventTimer_Elapsed for ServiceID = " & MySCPDURL & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
-        e = Nothing
-        sender = Nothing
     End Sub
 
     Private Sub MyServiceDiedTimer_Elapsed(ByVal sender As Object, ByVal e As System.Timers.ElapsedEventArgs) Handles MyServiceDiedTimer.Elapsed
@@ -4097,8 +4071,6 @@ Public Class MyUPnPService
         Catch ex As Exception
             If upnpDebuglevel > DebugLevel.dlOff Then LLog("Error in MyUPnPService.MyServiceDiedTimer_Elapsed for ServiceID = " & MySCPDURL & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
-        e = Nothing
-        sender = Nothing
     End Sub
 
     Private Function TreatUPnPError(ErrorInfo As String) As String
