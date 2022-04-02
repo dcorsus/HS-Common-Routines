@@ -18,7 +18,7 @@ Class MyUdpClient
     Private myLocalIPAddress As String = ""
     Private mGrpAddress As String = ""
     Private myLocalIPPort As Integer = 0
-    Private receivedByteCount As Integer = 0
+    Private receivedByteCount As Long = 0   ' changed 4/2/2022 due To overflow Error
     Public response As String = String.Empty
     Private instanceDebugFlag As Boolean = True ' default to on
     Private instanceDebugParams As String = ""
@@ -160,44 +160,50 @@ Class MyUdpClient
     Private Sub ReceiveCallback(ByVal ar As IAsyncResult)
         If UPnPDebuglevel > DebugLevel.dlEvents Then LLog("MyUdpClient.ReceiveCallback called", LogType.LOG_TYPE_INFO)
         Try
-                If Not isConnected Then
+            If Not isConnected Then
+                receiveDone.Set()
+                Exit Sub
+            End If
+        Catch ex As Exception
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("Error in MyUdpClient.ReceiveCallback closing socket on interface = " & myLocalIPAddress & ", port = " & myLocalIPPort.ToString & " and error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+        Try
+            Dim state As StateObject = CType(ar.AsyncState, StateObject)
+            Dim client As UdpClient = state.workSocket
+
+            ' Read data from the remote device.
+            Dim receivedBytes As Byte() = client.EndReceive(ar, ReceiveEP)
+
+            If receivedBytes IsNot Nothing AndAlso receivedBytes.Count > 0 Then
+                ' There might be more data, so store the data received so far.
+                If upnpDebuglevel > DebugLevel.dlEvents Then LLog("MyUdpClient.ReceiveCallback from remote address = " & ReceiveEP.ToString & ", received data = " & Encoding.UTF8.GetString(receivedBytes), LogType.LOG_TYPE_INFO)
+                Try ' changed 4/2/2022 due To overflow Error
+                    receivedByteCount += receivedBytes.Count
+                Catch ex As Exception
+                    ' reset to zero because of overflow
+                    receivedByteCount = 0
+                End Try
+
+                OnReceive(Encoding.UTF8.GetString(receivedBytes), ReceiveEP)
+                ' Get the rest of the data.
+                If Not isConnected Or (client Is Nothing) Then
+                    ' this could be if the OnReceive data forced the connection to close
+                    isConnected = True
                     receiveDone.Set()
                     Exit Sub
                 End If
-            Catch ex As Exception
-                If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("Error in MyUdpClient.ReceiveCallback closing socket on interface = " & myLocalIPAddress & ", port = " & myLocalIPPort.ToString & " and error = " & ex.Message, LogType.LOG_TYPE_ERROR)
-        End Try
-            Try
-                Dim state As StateObject = CType(ar.AsyncState, StateObject)
-                Dim client As UdpClient = state.workSocket
-
-                ' Read data from the remote device.
-                Dim receivedBytes As Byte() = client.EndReceive(ar, ReceiveEP)
-
-                If receivedBytes IsNot Nothing AndAlso receivedBytes.Count > 0 Then
-                    ' There might be more data, so store the data received so far.
-                    If upnpDebuglevel > DebugLevel.dlEvents Then LLog("MyUdpClient.ReceiveCallback from remote address = " & ReceiveEP.ToString & ", received data = " & Encoding.UTF8.GetString(receivedBytes), LogType.LOG_TYPE_INFO)
-                receivedByteCount += receivedBytes.Count
-                        OnReceive(Encoding.UTF8.GetString(receivedBytes), ReceiveEP)
-                        ' Get the rest of the data.
-                        If Not isConnected Or (client Is Nothing) Then
-                            ' this could be if the OnReceive data forced the connection to close
-                            isConnected = True
-                            receiveDone.Set()
-                            Exit Sub
-                        End If
-                        myIAsyncResult = myUdpClient.BeginReceive(New AsyncCallback(AddressOf ReceiveCallback), myState)
-                    Else
-                        ' All the data has arrived; put it in response.
-                        If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUdpClient.ReceiveCallback on interface = " & myLocalIPAddress & ", port = " & myLocalIPPort.ToString & " received all data and connected state = " & isConnected.ToString, LogType.LOG_TYPE_WARNING)
+                myIAsyncResult = myUdpClient.BeginReceive(New AsyncCallback(AddressOf ReceiveCallback), myState)
+            Else
+                ' All the data has arrived; put it in response.
+                If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("MyUdpClient.ReceiveCallback on interface = " & myLocalIPAddress & ", port = " & myLocalIPPort.ToString & " received all data and connected state = " & isConnected.ToString, LogType.LOG_TYPE_WARNING)
                 receiveDone.Set()
-                        End If
+            End If
         Catch ex As Exception
-                If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("Error in MyUdpClient.ReceiveCallback on interface = " & myLocalIPAddress & ", port = " & myLocalIPPort.ToString & " and error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If upnpDebuglevel > DebugLevel.dlErrorsOnly Then LLog("Error in MyUdpClient.ReceiveCallback on interface = " & myLocalIPAddress & ", port = " & myLocalIPPort.ToString & " and error = " & ex.Message, LogType.LOG_TYPE_ERROR)
             Try
-                        RaiseEvent UdpSocketClosed(Me) ' from testing, this appears to be a valid case
-                    Catch ex1 As Exception
-                    End Try
+                RaiseEvent UdpSocketClosed(Me) ' from testing, this appears to be a valid case
+            Catch ex1 As Exception
+            End Try
         End Try
     End Sub
 
