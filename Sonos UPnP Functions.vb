@@ -3612,13 +3612,7 @@ updateHSDevices:
             '<MediaServers>
             '<Ex CURL="http://192.168.1.109:1400/MediaServer/ContentDirectory/Control" EURL="http://192.168.1.109:1400/MediaServer/ContentDirectory/Event" T="3" EXT=""/>
             '<MediaServer Name="SONJA&apos;S NAN" UDN="DOCKRINCON_000E5860905A01400_MS" Location="http://192.168.1.109:1400/xml/dock_cd.xml"/>
-            '   <Service UDN="SA_RINCON7_dcorsus" Md="" Password="tomas3120" NumAccounts="1" Username0="dcorsus" Md0="" Password0="tomas3120"/>
-            '   <Service UDN="SA_RINCON11_aplasticfeast" Md="" Password="tomrules" NumAccounts="1" Username0="aplasticfeast" Md0="" Password0="tomrules"/>
-            '   <Service UDN="SA_RINCON3_dirk@famcorsus.com" Md="" Password="tomas3120" NumAccounts="1" Username0="dirk@famcorsus.com" Md0="" Password0="tomas3120"/>
-            '   <Service UDN="SA_RINCON2_00_0e_58_25_22_7a_9@sonos.com" Md="40134" Password="00M0qM58M25M22M7mM9" TrialDays="0" NumAccounts="1" Username0="00_0e_58_25_22_7a_9@sonos.com" Md0="40134" Password0="00M0qM58M25M22M7mM9"/>
-            '   <Service UDN="SA_RINCON1543_Sonos" Md="" Password="" NumAccounts="1" Username0="Sonos" Md0="" Password0=""/>
-            '   <Service UDN="SA_RINCON6_" Md="010E5825227A" Password="" TrialDays="0" NumAccounts="1" Username0="" Md0="010E5825227A" Password0=""/>
-            '   <Service UDN="SA_RINCON1799_dirk@famcorsus.com" Md="" Password="mywolfgang" NumAccounts="1" Username0="dirk@famcorsus.com" Md0="" Password0="mywolfgang"/>
+
             '</MediaServers>
             'MyThirdPartyMediaServices = Value
         ElseIf StateVarName = "ThirdPartyMediaServersX" Then ' if you ask me, this is ThirdPartyMediaServers in encrypted form
