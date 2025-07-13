@@ -50,11 +50,11 @@ Class MyUdpClient
         ' Receive buffer.
         Public buffer(BufferSize) As Byte
     End Class
-    Public Property BytesReceived As Integer
+    Public Property BytesReceived As Long
         Get
             BytesReceived = receivedByteCount
         End Get
-        Set(value As Integer)
+        Set(value As Long)
             receivedByteCount = value
         End Set
     End Property

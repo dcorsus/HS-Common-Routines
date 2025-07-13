@@ -4,6 +4,22 @@ Imports System.Web.Script.Serialization
 Imports System.Net
 Imports System.Security.Cryptography
 Imports System.Drawing
+Imports System.Xml.Serialization
+Imports System.Net.Sockets
+Imports System.Runtime.InteropServices
+Imports System.Text
+Imports System.Xml
+Imports System.Net.NetworkInformation
+Imports System.Net.Http
+Imports System.IO.Compression
+
+
+
+
+
+
+
+
 
 #If HS3 = "True" Then
 Imports HomeSeerAPI
@@ -140,7 +156,7 @@ Module util
     End Function
 
     Public Sub wait(ByVal secs As Decimal)
-        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("wait called with value = " & secs, LogType.LOG_TYPE_INFO)
+        If piDebuglevel > DebugLevel.dlEvents Then Log("wait called with value = " & secs, LogType.LOG_TYPE_INFO)
         Threading.Thread.Sleep(secs * 1000)
     End Sub
 
@@ -150,51 +166,86 @@ Module util
         LOG_TYPE_WARNING = 2
     End Enum
 
+    ' Member-level variables
+    Private logFileWriter As StreamWriter = Nothing
+    Private logFlushTimer As System.Timers.Timer = Nothing
+    Private logFileLock As New Object()
+    Private lastLogWrite As DateTime = DateTime.MinValue
+
     Public Function OpenLogFile(LogFileName As String, Optional append As Boolean = False) As Boolean
         If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("OpenLogFile called with LogFileName = " & LogFileName, LogType.LOG_TYPE_INFO)
-        If logFileTextWriter IsNot Nothing Then
-            CloseLogFile()
-        End If
+        If logFileWriter IsNot Nothing Then CloseLogFile()
+
         Try
             If LogFileName <> "" Then
                 If Not append AndAlso File.Exists(LogFileName) Then
-                    If File.Exists(LogFileName & ".bak") Then
-                        File.Delete(LogFileName & ".bak")
-                    End If
+                    If File.Exists(LogFileName & ".bak") Then File.Delete(LogFileName & ".bak")
                     File.Move(LogFileName, LogFileName & ".bak")
                 End If
-                Try
-                    logFileTextWriter = TextWriter.Synchronized(File.AppendText(LogFileName))
-                Catch ex1 As Exception
-                    If Not ImRunningOnLinux Then Console.WriteLine("Exception creating log file with Error = " & ex1.Message, LogType.LOG_TYPE_ERROR)
-                End Try
+
+                Dim fs As New FileStream(LogFileName, FileMode.Append, FileAccess.Write, FileShare.Read)
+                Dim writer = New StreamWriter(fs)
+                writer.AutoFlush = False
+                logFileWriter = writer
+                MyLogFileName = LogFileName
+
+                ' Setup flush timer
+                If logFlushTimer Is Nothing Then
+                    logFlushTimer = New System.Timers.Timer(10000) ' every 10 seconds
+                    AddHandler logFlushTimer.Elapsed, AddressOf FlushLogIfIdle
+                    logFlushTimer.AutoReset = True
+                    logFlushTimer.Start()
+                End If
+
+                Return True
             End If
-            MyLogFileName = LogFileName
-            Return True
         Catch ex As Exception
-            logFileTextWriter = Nothing
+            logFileWriter = Nothing
             MyLogFileName = ""
-            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in OpenLogFile with Error = " & ex.Message & " and DiskFileName = " & LogFileName, LogType.LOG_TYPE_ERROR)
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in OpenLogFile: " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
+
         Return False
     End Function
 
+    Private Sub FlushLogIfIdle(sender As Object, e As Timers.ElapsedEventArgs)
+        Try
+            If logFileWriter IsNot Nothing Then
+                SyncLock logFileLock
+                    If (DateTime.Now - lastLogWrite).TotalSeconds >= 10 Then
+                        logFileWriter.Flush()
+                    End If
+                End SyncLock
+            End If
+        Catch
+            ' suppress flush exceptions
+        End Try
+    End Sub
+
     Public Sub CloseLogFile()
         If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CloseLogFile called for DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_INFO)
-        If logFileTextWriter IsNot Nothing Then
-            Try
-                logFileTextWriter.Flush()
-                logFileTextWriter.Close()
-            Catch ex As Exception
-                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error closing debug disk Log with Error = " & ex.Message & " and DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_ERROR)
-            End Try
-            Try
-                logFileTextWriter.Dispose()
-            Catch ex As Exception
-                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error disposing debug disk Log with Error = " & ex.Message & " and DiskFileName = " & MyLogFileName, LogType.LOG_TYPE_ERROR)
-            End Try
-            logFileTextWriter = Nothing
+
+        If logFlushTimer IsNot Nothing Then
+            logFlushTimer.Stop()
+            logFlushTimer.Dispose()
+            logFlushTimer = Nothing
         End If
+
+        If logFileWriter IsNot Nothing Then
+            Try
+                logFileWriter.Flush()
+                logFileWriter.Close()
+            Catch ex As Exception
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error closing log: " & ex.Message, LogType.LOG_TYPE_ERROR)
+            End Try
+            Try
+                logFileWriter.Dispose()
+            Catch ex As Exception
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error disposing log: " & ex.Message, LogType.LOG_TYPE_ERROR)
+            End Try
+            logFileWriter = Nothing
+        End If
+
         MyLogFileName = ""
     End Sub
 
@@ -352,49 +403,52 @@ Module util
     End Sub
 
 #Else
+
     Public Sub Log(ByVal msg As String, Optional ByVal logType As LogType = LogType.LOG_TYPE_INFO, Optional ByVal MsgColor As String = "", Optional ErrorCode As Integer = 0)
         Try
             If msg Is Nothing Then msg = ""
             If Not [Enum].IsDefined(GetType(LogType), logType) Then
-                logType = util.LogType.LOG_TYPE_ERROR
+                logType = LogType.LOG_TYPE_ERROR
             End If
+
             If Not ImRunningOnLinux Then Console.WriteLine(DateAndTime.Now.ToString & " : " & msg)
+
             Select Case logType
                 Case LogType.LOG_TYPE_ERROR
                     If MsgColor <> "" Then
-                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, msg, shortIfaceName, MsgColor)
+                        myHomeSeerSystem?.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, msg, shortIfaceName, MsgColor)
                     Else
-                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, msg, shortIfaceName)
+                        myHomeSeerSystem?.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, msg, shortIfaceName)
                     End If
                 Case LogType.LOG_TYPE_WARNING
                     If MsgColor <> "" Then
-                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Warning, msg, shortIfaceName, MsgColor)
+                        myHomeSeerSystem?.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Warning, msg, shortIfaceName, MsgColor)
                     Else
-                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Warning, msg, shortIfaceName)
+                        myHomeSeerSystem?.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Warning, msg, shortIfaceName)
                     End If
                 Case LogType.LOG_TYPE_INFO
                     If MsgColor <> "" Then
-                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Info, msg, shortIfaceName, MsgColor)
+                        myHomeSeerSystem?.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Info, msg, shortIfaceName, MsgColor)
                     Else
-                        If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Info, msg, shortIfaceName)
+                        myHomeSeerSystem?.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Info, msg, shortIfaceName)
                     End If
             End Select
         Catch ex As Exception
-            If Not ImRunningOnLinux Then Console.WriteLine("Exception in LOG of " & IFACE_NAME & ": " & ex.Message, LogType.LOG_TYPE_ERROR)
+            If Not ImRunningOnLinux Then Console.WriteLine("Exception in LOG: " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
+
         Try
-            If MyLogFileName <> "" And gLogToDisk Then
-                If logFileTextWriter IsNot Nothing Then
-                    ' changed 6/19/2021 after getting error Exception in LOG with Error = Probable I/O race condition detected while copying memory. The I/O package is not thread safe by default. In multithreaded applications, a stream must be accessed in a thread-safe way, such as a thread-safe wrapper returned by TextReader's or TextWriter's Synchronized methods. This also applies to classes like StreamWriter and StreamReader.
-                    'LogFileStreamWriter.WriteLine(DateAndTime.Now.ToString & " : " & logType.ToString & " - " & msg)
-                    logFileTextWriter.WriteLine(DateAndTime.Now.ToString & " : " & logType.ToString & " - " & msg)
-                End If
+            If MyLogFileName <> "" AndAlso gLogToDisk AndAlso logFileWriter IsNot Nothing Then
+                SyncLock logFileLock
+                    logFileWriter.WriteLine(DateAndTime.Now.ToString & " : " & logType.ToString & " - " & msg)
+                    lastLogWrite = DateTime.Now
+                    'logFileWriter.Flush() ' Force write
+                End SyncLock
             End If
         Catch ex As Exception
-            logFileTextWriter = Nothing
+            logFileWriter = Nothing
             MyLogFileName = ""
-            If Not ImRunningOnLinux Then Console.WriteLine(DateAndTime.Now.ToString & " : " & " Exception in LOG with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
-            If myHomeSeerSystem IsNot Nothing Then myHomeSeerSystem.WriteLog(HomeSeer.PluginSdk.Logging.ELogType.Error, " Exception in LOG with Error = " & ex.Message, shortIfaceName)
+            If Not ImRunningOnLinux Then Console.WriteLine("Exception in LOG write: " & ex.Message, LogType.LOG_TYPE_ERROR)
         End Try
     End Sub
 
@@ -522,8 +576,10 @@ Module util
             Else
                 miscFlags = miscFlags And Not (EMiscFlag.Hidden) And Not (EMiscFlag.HideInMobile)
             End If
-            Dim newMisc As Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object) = New Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object)()
-            newMisc.Add(EProperty.Misc, miscFlags)
+
+            Dim newMisc As New Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object) From {
+                {EProperty.Misc, miscFlags}
+            }
             myHomeSeerSystem.UpdateFeatureByRef(featureRef, newMisc)
         Catch ex As Exception
             If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in SetHideFlagFeature called with Ref = " & featureRef.ToString & " and flagOn = " & flagOn.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -541,8 +597,10 @@ Module util
             Else
                 miscFlags = miscFlags And Not (EMiscFlag.Hidden) And Not (EMiscFlag.HideInMobile)
             End If
-            Dim newMisc As Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object) = New Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object)()
-            newMisc.Add(EProperty.Misc, miscFlags)
+
+            Dim newMisc As New Dictionary(Of HomeSeer.PluginSdk.Devices.EProperty, Object) From {
+                {EProperty.Misc, miscFlags}
+            }
             myHomeSeerSystem.UpdateDeviceByRef(deviceRef, newMisc)
         Catch ex As Exception
             If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in SetHideFlagDevice called with Ref = " & deviceRef.ToString & " and flagOn = " & flagOn.ToString & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -582,7 +640,7 @@ Module util
                     Log("--Device Interface = " & dv.Interface, LogType.LOG_TYPE_WARNING)
                     Log("--Device IsValueInvalid = " & dv.IsValueInvalid, LogType.LOG_TYPE_WARNING)
                     Log("--Device Relationship = " & dv.Relationship.ToString(), LogType.LOG_TYPE_WARNING)
-                    Log("--Device Status = " & dv.Status, LogType.LOG_TYPE_WARNING)
+                    Log("--Device Status = " & dv.StatusString, LogType.LOG_TYPE_WARNING)
                     Log("--Device Value = " & dv.Value.ToString(), LogType.LOG_TYPE_WARNING)
                     Log("--Device TypeInfo.Type = " & dv.TypeInfo.Type.ToString(), LogType.LOG_TYPE_WARNING)
                     Log("--Device TypeInfo.SubType = " & dv.TypeInfo.SubType.ToString(), LogType.LOG_TYPE_WARNING)
@@ -596,7 +654,7 @@ Module util
                             Log("------Feature Interface = " & fv.Interface, LogType.LOG_TYPE_WARNING)
                             Log("------Feature IsValueInvalid = " & fv.IsValueInvalid, LogType.LOG_TYPE_WARNING)
                             Log("------Feature Relationship = " & fv.Relationship.ToString(), LogType.LOG_TYPE_WARNING)
-                            Log("------Feature Status = " & fv.Status, LogType.LOG_TYPE_WARNING)
+                            Log("------Feature Status = " & fv.StatusString, LogType.LOG_TYPE_WARNING)
                             Log("------Feature Value = " & fv.Value.ToString(), LogType.LOG_TYPE_WARNING)
                             Dim scList As Controls.StatusControlCollection = fv.StatusControls()
                             Dim sgList As StatusGraphicCollection = fv.StatusGraphics()
@@ -636,7 +694,7 @@ Module util
                                 Log("------Feature Interface = " & fv.Interface, LogType.LOG_TYPE_WARNING)
                                 Log("------Feature IsValueInvalid = " & fv.IsValueInvalid, LogType.LOG_TYPE_WARNING)
                                 Log("------Feature Relationship = " & fv.Relationship.ToString(), LogType.LOG_TYPE_WARNING)
-                                Log("------Feature Status = " & fv.Status, LogType.LOG_TYPE_WARNING)
+                                Log("------Feature Status = " & fv.StatusString, LogType.LOG_TYPE_WARNING)
                                 Log("------Feature Value = " & fv.Value.ToString(), LogType.LOG_TYPE_WARNING)
                                 Log("------Feature TypeInfo.Type = " & fv.TypeInfo.Type.ToString(), LogType.LOG_TYPE_WARNING)
                                 Log("------Feature TypeInfo.SubType = " & fv.TypeInfo.SubType.ToString(), LogType.LOG_TYPE_WARNING)
@@ -688,7 +746,7 @@ Module util
 
     End Sub
 
-    Public Function extractVolumeAttributes(value As String) As VolumeAttributes
+    Public Function ExtractVolumeAttributes(value As String) As VolumeAttributes
         If value.Trim.Length = 0 Then Return Nothing
         Try
             Dim returnInfo As New VolumeAttributes
@@ -703,7 +761,7 @@ Module util
                 If useHSRef <> -1 Then
                     value = value.Substring(5)  ' remove the $DSR:
                     Dim tempRef As String = value
-                    value = If(myHomeSeerSystem.GetFeatureByRef(value)?.Status, 0)
+                    value = If(myHomeSeerSystem.GetFeatureByRef(value)?.StatusString, 0)
                     If piDebuglevel > DebugLevel.dlErrorsOnly Then Log(" extractVolumeAttributes retrieved device value = " & value & " for devRef = " & tempRef, LogType.LOG_TYPE_INFO)
                 End If
             End If
@@ -960,6 +1018,10 @@ Module util
         'If piDebuglevel > DebugLevel.dlErrorsOnly Then log( "DecodeURI: In = " & InString & " out = " & Outstring)
     End Function
 
+    Public Function EscapeForJson(input As String) As String
+        Return input.Replace("\", "\\").Replace("""", "\""")
+    End Function
+
     Public Function DeriveIPAddress(inString As String, NextChar As String) As String
         If piDebuglevel > DebugLevel.dlEvents Then Log("DeriveIPAddress called for and inString = " & inString & " and NextChar = " & NextChar, LogType.LOG_TYPE_INFO)
         DeriveIPAddress = inString
@@ -1069,7 +1131,7 @@ Module util
             End If
         Else
             ' this is to return the body which is separated from the header with a blank line
-            Dim Lines As String() = Split(response, {vbCr(0), vbLf(0)})
+            Dim Lines As String() = Strings.Split(response, {vbCr(0), vbLf(0)})
             Dim EmptyLineFound As Boolean = False
             Dim Body As String = ""
             If Lines IsNot Nothing Then
@@ -1123,8 +1185,28 @@ Module util
         End If
     End Function
 
+    Function GetIpAddressType(ipString As String) As String
+        Dim ip As IPAddress = Nothing
+        Try
+            If IPAddress.TryParse(ipString, ip) Then
+                If ip IsNot Nothing Then
+                    Select Case ip.AddressFamily
+                        Case Sockets.AddressFamily.InterNetwork
+                            Return "IPv4"
+                        Case Sockets.AddressFamily.InterNetworkV6
+                            Return "IPv6"
+                        Case Else
+                            Return ip.AddressFamily.ToString
+                    End Select
+                End If
+            End If
+        Catch ex As Exception
+            Return ex.Message
+        End Try
+        Return "Invalid"
+    End Function
+
     Public Function CheckLocalIPv4Address(in_address As String) As Boolean
-        CheckLocalIPv4Address = False
         Try
             Dim strHostName As String = System.Net.Dns.GetHostName()
             Dim iphe As System.Net.IPHostEntry = System.Net.Dns.GetHostEntry(strHostName)
@@ -1161,7 +1243,7 @@ Module util
             Next
             If NbrOfIPv4Interfaces > 1 Then
                 ' Houston we have a problem, we need to have the user select one. Put a warning here for time being until I can fix it
-                If piDebuglevel > DebugLevel.dlOff Then Log("Warning in GetLocalIPv4Address. Found multiple local IP Addresses. Last one selected = " & GetLocalIPv4Address, LogType.LOG_TYPE_WARNING)
+                If piDebuglevel > DebugLevel.dlOff Then Log($"Warning in GetLocalIPv4Address. Found multiple local IP Addresses. Count = {NbrOfIPv4Interfaces}. Selected = {GetLocalIPv4Address }", LogType.LOG_TYPE_WARNING)
             End If
         Catch ex As Exception
             If piDebuglevel > DebugLevel.dlOff Then Log("Error in GetLocalIPv4Address with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
@@ -1172,7 +1254,7 @@ Module util
         If piDebuglevel > DebugLevel.dlEvents Then Log("GetLocalMacAddress called", LogType.LOG_TYPE_INFO)
         GetLocalMacAddress = ""
         Dim LocalMacAddress As String = ""
-        Dim LocalIPAddress = PlugInIPAddress
+        Dim LocalIPAddress = plugInIPAddress
         If LocalIPAddress = "" Then
             If piDebuglevel > DebugLevel.dlOff Then Log("Error in GetLocalMacAddress trying to get own IP address", LogType.LOG_TYPE_ERROR)
             Exit Function
@@ -1199,58 +1281,100 @@ Module util
         If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in GetLocalMacAddress trying to get own MAC address, none found", LogType.LOG_TYPE_ERROR)
     End Function
 
+    Public Function IsDirectlyConnected(targetIpStr As String) As Boolean
+        If Not IPAddress.TryParse(targetIpStr, Nothing) Then Return False
+
+        Dim targetIp As IPAddress = IPAddress.Parse(targetIpStr)
+        If targetIp.AddressFamily <> AddressFamily.InterNetwork Then Return False ' IPv4 only
+
+        For Each nic As NetworkInterface In NetworkInterface.GetAllNetworkInterfaces()
+            If nic.OperationalStatus <> OperationalStatus.Up Then Continue For
+
+            For Each unicast In nic.GetIPProperties().UnicastAddresses
+                If unicast.Address.AddressFamily <> AddressFamily.InterNetwork Then Continue For
+
+                Dim localIp As IPAddress = unicast.Address
+                Dim subnetMask As IPAddress = unicast.IPv4Mask
+                If subnetMask Is Nothing Then Continue For
+
+                If IsInSameSubnet(localIp, targetIp, subnetMask) Then
+                    Return True
+                End If
+            Next
+        Next
+
+        Return False
+    End Function
+
+    Private Function IsInSameSubnet(ip1 As IPAddress, ip2 As IPAddress, mask As IPAddress) As Boolean
+        Dim ip1Bytes = ip1.GetAddressBytes()
+        Dim ip2Bytes = ip2.GetAddressBytes()
+        Dim maskBytes = mask.GetAddressBytes()
+        For i = 0 To 3
+            If (ip1Bytes(i) And maskBytes(i)) <> (ip2Bytes(i) And maskBytes(i)) Then
+                Return False
+            End If
+        Next
+        Return True
+    End Function
+
     Public Function GetEthernetPorts() As IEnumerable(Of NetworkInfo)
         If piDebuglevel > DebugLevel.dlEvents Then Log("GetEthernetPorts called", LogType.LOG_TYPE_INFO)
-        Dim PortInfo As List(Of NetworkInfo) = New List(Of NetworkInfo)
+        Dim PortInfo As New List(Of NetworkInfo)
         'Dim Ethernetports As New Dictionary(Of String, String)
         Try
             For Each nic As System.Net.NetworkInformation.NetworkInterface In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-                Dim netInfo As New NetworkInfo
-                netInfo.description = nic.Description
-                netInfo.mac = nic.GetPhysicalAddress().ToString
-                netInfo.operationalstate = nic.OperationalStatus.ToString
-                netInfo.id = nic.Id.ToString
-                netInfo.name = nic.Name
-                netInfo.interfacetype = nic.NetworkInterfaceType.ToString
+                Dim netInfo As New NetworkInfo With {
+                    .description = nic.Description,
+                    .mac = nic.GetPhysicalAddress().ToString,
+                    .operationalstate = nic.OperationalStatus.ToString,
+                    .id = nic.Id.ToString,
+                    .name = nic.Name,
+                    .interfacetype = nic.NetworkInterfaceType.ToString
+}
 
-                If PIDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The MAC address of {0} is {1} with status {2}", nic.Description, nic.GetPhysicalAddress().ToString, nic.OperationalStatus.ToString), LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("The MAC address of {0} is {1} with status {2}", nic.Description, nic.GetPhysicalAddress().ToString, nic.OperationalStatus.ToString), LogType.LOG_TYPE_INFO)
                 If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("  The ID of {0} has name {1} and interface type {2}", nic.Id.ToString, nic.Name, nic.NetworkInterfaceType.ToString), LogType.LOG_TYPE_INFO)
                 If nic.OperationalStatus = Net.NetworkInformation.OperationalStatus.Up Then
                     For Each Ipa In nic.GetIPProperties.UnicastAddresses
-                        If PIDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
+                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
                         If Ipa.Address.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork Then
                             ' we found an IPv4 IPaddress
-                            Dim addrinfo As New NetworkInfoAddrMask
-                            addrinfo.address = Ipa.Address.ToString
-                            addrinfo.mask = Ipa.IPv4Mask.ToString
-                            addrinfo.addrtype = "IPv4 Unicast"
+                            Dim addrinfo As New NetworkInfoAddrMask With {
+                                .address = Ipa.Address.ToString,
+                                .mask = Ipa.IPv4Mask.ToString,
+                                .addrtype = "IPv4 Unicast"
+                            }
                             If netInfo.addressinfo Is Nothing Then netInfo.addressinfo = New List(Of NetworkInfoAddrMask)
                             netInfo.addressinfo.Add(addrinfo)
                         ElseIf Ipa.Address.AddressFamily = System.Net.Sockets.AddressFamily.InterNetworkV6 Then
-                            Dim addrinfo As New NetworkInfoAddrMask
-                            addrinfo.address = Ipa.Address.ToString
-                            addrinfo.addrtype = "IPv6 Unicast"
+                            Dim addrinfo As New NetworkInfoAddrMask With {
+                                .address = Ipa.Address.ToString,
+                                .addrtype = "IPv6 Unicast"
+                            }
                             If netInfo.addressinfo Is Nothing Then netInfo.addressinfo = New List(Of NetworkInfoAddrMask)
                             netInfo.addressinfo.Add(addrinfo)
                         End If
                     Next
                     For Each Ipa In nic.GetIPProperties.AnycastAddresses
-                        If PIDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The AnyCast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
-                        Dim addrinfo As New NetworkInfoAddrMask
-                        addrinfo.address = Ipa.Address.ToString
-                        addrinfo.mask = Ipa.Address.AddressFamily.ToString
-                        addrinfo.addrtype = "Anycast"
+                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The AnyCast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
+                        Dim addrinfo As New NetworkInfoAddrMask With {
+                            .address = Ipa.Address.ToString,
+                            .mask = Ipa.Address.AddressFamily.ToString,
+                            .addrtype = "Anycast"
+                        }
                         If netInfo.addressinfo Is Nothing Then netInfo.addressinfo = New List(Of NetworkInfoAddrMask)
-                        netInfo.addressinfo.add(addrinfo)
+                        netInfo.addressinfo.Add(addrinfo)
                     Next
                     For Each Ipa In nic.GetIPProperties.MulticastAddresses
-                        If PIDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The Multicast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
-                        Dim addrinfo As New NetworkInfoAddrMask
-                        addrinfo.address = Ipa.Address.ToString
-                        addrinfo.mask = Ipa.Address.AddressFamily.ToString
-                        addrinfo.addrtype = "Multicast"
+                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The Multicast address of {0} is {1} with Address family {2}", nic.Description, Ipa.Address.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
+                        Dim addrinfo As New NetworkInfoAddrMask With {
+                            .address = Ipa.Address.ToString,
+                            .mask = Ipa.Address.AddressFamily.ToString,
+                            .addrtype = "Multicast"
+                        }
                         If netInfo.addressinfo Is Nothing Then netInfo.addressinfo = New List(Of NetworkInfoAddrMask)
-                        netInfo.addressinfo.add(addrinfo)
+                        netInfo.addressinfo.Add(addrinfo)
                     Next
                 Else
                     ' operational state down
@@ -1278,7 +1402,7 @@ Module util
                 If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("  The ID of {0} has name {1} and interface type {2}", nic.Id.ToString, nic.Name, nic.NetworkInterfaceType.ToString), LogType.LOG_TYPE_INFO)
                 If nic.OperationalStatus = Net.NetworkInformation.OperationalStatus.Up Then
                     For Each Ipa In nic.GetIPProperties.UnicastAddresses
-                        If PIDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
+                        If piDebuglevel > DebugLevel.dlEvents Then Log(String.Format("    The UniCast address of {0} is {1} with mask {2} and Address family {3}", nic.Description, Ipa.Address.ToString, Ipa.IPv4Mask.ToString, Ipa.Address.AddressFamily.ToString), LogType.LOG_TYPE_INFO)
                         If Ipa.Address.AddressFamily = System.Net.Sockets.AddressFamily.InterNetwork Then
                             If Ipa.Address.ToString = ipAddress Then Return True
                         End If
@@ -1290,6 +1414,38 @@ Module util
             Return False
         End Try
         Return False
+    End Function
+
+    Public Function IsPortAvailable(port As Integer) As Boolean
+        Dim listener As TcpListener = Nothing
+        Try
+            listener = New TcpListener(System.Net.IPAddress.Loopback, port)
+            listener.Start()
+            Return True ' Port is available
+        Catch ex As SocketException
+            Return False ' Port is in use
+        Finally
+            If listener IsNot Nothing Then
+                Try
+                    listener.Stop()
+                Catch
+                    ' Ignore any errors when stopping
+                End Try
+            End If
+        End Try
+    End Function
+
+    Public Function GetAvailablePorts(startPort As Integer, endPort As Integer) As List(Of Integer)
+        Dim availablePorts As New List(Of Integer)()
+        Try
+            For port As Integer = startPort To endPort
+                If IsPortAvailable(port) Then
+                    availablePorts.Add(port)
+                End If
+            Next
+        Catch ex As Exception
+        End Try
+        Return availablePorts
     End Function
 
     Public Function EncodeTags(ByVal InString As String) As String
@@ -1353,7 +1509,7 @@ Module util
     Public Function FindPairInJSONString(inString As String, inName As String) As Object
         Try
             If inString = "" Or inName = "" Then Return Nothing
-            If PIDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inName = " & inName, LogType.LOG_TYPE_INFO)
+            If piDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inName = " & inName, LogType.LOG_TYPE_INFO)
             Dim json As New JavaScriptSerializer
             Dim JSONdataLevel1 As Object
             JSONdataLevel1 = json.DeserializeObject(inString)
@@ -1371,7 +1527,7 @@ Module util
                     End If
                 End If
             Next
-            If PIDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inString = " & inString & " did not find the key = " & inName, LogType.LOG_TYPE_WARNING)
+            If piDebuglevel > DebugLevel.dlEvents Then Log("FindPairInJSONString called with inString = " & inString & " did not find the key = " & inName, LogType.LOG_TYPE_WARNING)
         Catch ex As Exception
             If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in FindPairInJSONString processing response with error = " & ex.Message & " with inString = " & inString & " and inName = " & inName, LogType.LOG_TYPE_ERROR)
         End Try
@@ -1448,6 +1604,617 @@ Module util
         Return InString.Replace(" ", "%20")
     End Function
 
+    Public Function RetrieveErrorCodeFromHTTPResponse(inString As String) As Integer
+        inString = inString.Trim(inString)
+        If inString = "" Then Return -1
+        Dim errorCodeString As String = ""
+        For index = 0 To inString.Length - 1
+            If inString(index) >= "0" And inString(index) <= "9" Then
+                errorCodeString &= inString(index)
+            Else
+                Exit For
+            End If
+        Next
+        If errorCodeString <> "" Then
+            Return Val(errorCodeString)
+        End If
+        Return -1
+    End Function
+
+    Public Sub CheckFirewallStatus(appName As String, autoAdd As Boolean, ruleName As String)
+        '   This VBScript file includes sample code that enumerates
+        '   Windows Firewall rules with a matching grouping string 
+        '   using the Microsoft Windows Firewall APIs.
+        ' https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ics/enumerating-firewall-rules
+
+        ' Option Explicit On
+
+        Dim CurrentProfiles
+        Dim InterfaceArray
+        Dim LowerBound
+        Dim UpperBound
+        Dim iterate
+        Dim rule
+
+        ' Profile Type
+        Const NET_FW_PROFILE2_DOMAIN = 1
+        Const NET_FW_PROFILE2_PRIVATE = 2
+        Const NET_FW_PROFILE2_PUBLIC = 4
+
+        ' Protocol
+        Const NET_FW_IP_PROTOCOL_TCP = 6
+        Const NET_FW_IP_PROTOCOL_UDP = 17
+        Const NET_FW_IP_PROTOCOL_ICMPv4 = 1
+        Const NET_FW_IP_PROTOCOL_ICMPv6 = 58
+        Const NET_FW_IP_PROTOCOL_ANY = 256
+
+        ' Direction
+        Const NET_FW_RULE_DIR_IN = 1
+        Const NET_FW_RULE_DIR_OUT = 2
+
+        ' Action
+        Const NET_FW_ACTION_BLOCK = 0
+        Const NET_FW_ACTION_ALLOW = 1
+
+
+        ' Create the FwPolicy2 object.
+        Dim fwPolicy2 = CreateObject("HNetCfg.FwPolicy2")
+
+        CurrentProfiles = fwPolicy2.CurrentProfileTypes
+
+        '// The returned 'CurrentProfiles' bitmask can have more than 1 bit set if multiple profiles 
+        '//   are active or current at the same time
+        Dim firewallActive As Boolean = False
+
+        If (CurrentProfiles And NET_FW_PROFILE2_DOMAIN) Then
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckFirewallStatus found Domain Firewall Profile is active", LogType.LOG_TYPE_INFO)
+            firewallActive = True
+        End If
+
+        If (CurrentProfiles And NET_FW_PROFILE2_PRIVATE) Then
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckFirewallStatus found Private Firewall Profile is active", LogType.LOG_TYPE_INFO)
+            firewallActive = True
+        End If
+
+        If (CurrentProfiles And NET_FW_PROFILE2_PUBLIC) Then
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckFirewallStatus found Public Firewall Profile is active", LogType.LOG_TYPE_INFO)
+            firewallActive = True
+        End If
+
+        If Not firewallActive Then
+            If piDebuglevel > DebugLevel.dlOff Then Log("CheckFirewallStatus no firewall (Windows Defender) active", LogType.LOG_TYPE_INFO)
+            Exit Sub
+        End If
+
+        ' Get the Rules object
+        Dim RulesObject = fwPolicy2.Rules
+        Dim inRuleFound As Boolean = False
+        Dim outRuleFound As Boolean = False
+        Dim TCPRuleFound As Boolean = False
+        Dim UDPRulefound As Boolean = False
+
+        If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus found Rules:", LogType.LOG_TYPE_INFO)
+        For Each rule In RulesObject
+            If piDebuglevel > DebugLevel.dlVerbose Then Log("CheckFirewallStatus found Rule Name: " & rule.Name, LogType.LOG_TYPE_INFO)
+            If rule.ApplicationName IsNot Nothing AndAlso (rule.ApplicationName.ToString.ToUpper = appName.Replace("/", "\").ToUpper) Then
+                '   If rule.Grouping = "@firewallapi.dll,-23255" Then
+                If piDebuglevel > DebugLevel.dlOff Then Log("CheckFirewallStatus found Rule Name: " & rule.Name & ", Description = " & rule.Description & ", App Name = " & rule.ApplicationName & ", Service Name = " & rule.ServiceName & " and Enabled = " & rule.Enabled.ToString, LogType.LOG_TYPE_INFO)
+                Select Case rule.Protocol
+                    Case NET_FW_IP_PROTOCOL_TCP
+                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckFirewallStatus ---- IP Protocol: TCP.", LogType.LOG_TYPE_INFO)
+                        TCPRuleFound = True
+                    Case NET_FW_IP_PROTOCOL_UDP
+                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckFirewallStatus ---- IP Protocol: UDP.", LogType.LOG_TYPE_INFO)
+                        UDPRulefound = True
+                    Case NET_FW_IP_PROTOCOL_ANY
+                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckFirewallStatus ---- IP Protocol: ANY.", LogType.LOG_TYPE_INFO)
+                        TCPRuleFound = True
+                        UDPRulefound = True
+                    Case NET_FW_IP_PROTOCOL_ICMPv4
+                        If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ---- IP Protocol: ICMPv4.", LogType.LOG_TYPE_INFO)
+                    Case NET_FW_IP_PROTOCOL_ICMPv6
+                        If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ---- IP Protocol: ICMPv6.", LogType.LOG_TYPE_INFO)
+                    Case Else
+                        If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ---- IP Protocol: " & rule.Protocol, LogType.LOG_TYPE_INFO)
+                End Select
+                If rule.Protocol = NET_FW_IP_PROTOCOL_TCP Or rule.Protocol = NET_FW_IP_PROTOCOL_UDP Then
+                    If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ---- Protocol: " & rule.Protocol.ToString & " Local Ports: " & rule.LocalPorts & ", Remote Ports = " & rule.RemotePorts & ", LocalAddresses = " & rule.LocalAddresses & ", RemoteAddresses = " & rule.RemoteAddresses, LogType.LOG_TYPE_INFO)
+                End If
+                If rule.Protocol = NET_FW_IP_PROTOCOL_ICMPv4 Or rule.Protocol = NET_FW_IP_PROTOCOL_ICMPv6 Then
+                    If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus -- ICMP Type and Code: " & rule.IcmpTypesAndCodes, LogType.LOG_TYPE_INFO)
+                End If
+                Select Case rule.Direction
+                    Case NET_FW_RULE_DIR_IN
+                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckFirewallStatus ---- Direction: In", LogType.LOG_TYPE_INFO)
+                        If rule.Enabled Then inRuleFound = True
+                    Case NET_FW_RULE_DIR_OUT
+                        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("CheckFirewallStatus ---- Direction: Out", LogType.LOG_TYPE_INFO)
+                        If rule.Enabled Then outRuleFound = True
+                End Select
+                If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ----  Enabled: " & rule.Enabled, LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ----  Edge: " & rule.EdgeTraversal, LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ----  LocalPorts: " & rule.LocalPorts, LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ----  Profiles: " & rule.Profiles, LogType.LOG_TYPE_INFO)
+
+                Select Case rule.Action
+                    Case NET_FW_ACTION_ALLOW
+                        If piDebuglevel > DebugLevel.dlOff Then Log("CheckFirewallStatus ---- Action: Allow", LogType.LOG_TYPE_INFO, LogColorGreen, LogType.LOG_TYPE_INFO)
+                    Case NET_FW_ACTION_BLOCK
+                        If piDebuglevel > DebugLevel.dlOff Then Log("CheckFirewallStatus ---- Action: Block", LogType.LOG_TYPE_WARNING)
+                End Select
+                If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ---- Grouping: " & rule.Grouping & ", Interface Types: " & rule.InterfaceTypes, LogType.LOG_TYPE_INFO)
+                InterfaceArray = rule.Interfaces
+                If InterfaceArray Is Nothing Then
+                    If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ---- There are no excluded interfaces", LogType.LOG_TYPE_INFO)
+                Else
+                    LowerBound = LBound(InterfaceArray)
+                    UpperBound = UBound(InterfaceArray)
+                    If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ---- Excluded interfaces: ", LogType.LOG_TYPE_INFO)
+                    For iterate = LowerBound To UpperBound
+                        If piDebuglevel > DebugLevel.dlEvents Then Log("CheckFirewallStatus ------ " & InterfaceArray(iterate), LogType.LOG_TYPE_INFO)
+                    Next
+                End If
+            End If
+        Next
+        If Not (inRuleFound And UDPRulefound And TCPRuleFound) Then
+            Dim success As Boolean = False
+            If autoAdd Then
+                success = AddApplicationFirewallRule(ruleName, appName.Replace("/", "\"))
+                If success Then Log("CheckFirewallStatus added firewall rules for Application = " & appName.Replace("/", "\"), LogType.LOG_TYPE_WARNING)
+            End If
+            If Not success And piDebuglevel > DebugLevel.dlOff Then Log("CheckFirewallStatus did not find proper firewall rules. It was looking for Application = " & appName.Replace("/", "\") & ". Fix it as plugin will not function properly", LogType.LOG_TYPE_ERROR)
+        End If
+    End Sub
+
+    Public Function AddApplicationFirewallRule(ruleName As String, AppName As String) As Boolean
+
+        Try
+            Dim CurrentProfiles
+            ' Protocol
+            Const NET_FW_IP_PROTOCOL_TCP = 6
+            Const NET_FW_IP_PROTOCOL_UDP = 17
+            'Const NET_FW_IP_PROTOCOL_ANY = 256
+            Const NET_FW_RULE_DIR_IN = 1
+            'Const NET_FW_RULE_DIR_OUT = 2
+            ' Policy
+            Const NET_FW_PROFILE2_DOMAIN = &H1
+            Const NET_FW_PROFILE2_PRIVATE = &H2
+            Const NET_FW_PROFILE2_PUBLIC = &H4
+            Const NET_FW_PROFILE2_ALL = &H7FFFFFFF
+
+            'Action
+            Const NET_FW_ACTION_ALLOW = 1
+            ' Create the FwPolicy2 object.
+            Dim fwPolicy2
+            fwPolicy2 = CreateObject("HNetCfg.FwPolicy2")
+            ' Get the Rules object
+            Dim RulesObject
+            RulesObject = fwPolicy2.Rules
+            CurrentProfiles = fwPolicy2.CurrentProfileTypes
+            'Create a Rule Object for TCP
+            Dim NewRule
+            NewRule = CreateObject("HNetCfg.FWRule")
+            NewRule.Name = ruleName
+            NewRule.Description = "Allow HomeSeer pluging acces"
+            NewRule.Applicationname = AppName
+            NewRule.Protocol = NET_FW_IP_PROTOCOL_TCP
+            NewRule.Direction = NET_FW_RULE_DIR_IN
+            ' NewRule.LocalPorts = "*"
+            NewRule.Enabled = True
+            NewRule.Grouping = "@firewallapi.dll,-23255"
+            NewRule.Profiles = NET_FW_PROFILE2_ALL 'CurrentProfiles
+            NewRule.Action = NET_FW_ACTION_ALLOW
+            'Add a new rule for UDP
+            RulesObject.Add(NewRule)
+            NewRule = CreateObject("HNetCfg.FWRule")
+            NewRule.Name = ruleName
+            NewRule.Description = "Allow HomeSeer pluging acces"
+            NewRule.Applicationname = AppName
+            NewRule.Protocol = NET_FW_IP_PROTOCOL_UDP
+            NewRule.Direction = NET_FW_RULE_DIR_IN
+            'NewRule.LocalPorts = "*"
+            NewRule.Enabled = True
+            NewRule.Grouping = "@firewallapi.dll,-23255"
+            NewRule.Profiles = NET_FW_PROFILE2_ALL ' CurrentProfiles
+            NewRule.Action = NET_FW_ACTION_ALLOW
+            'Add a new rule
+            RulesObject.Add(NewRule)
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in AddApplicationFirewallRule for Application = " & AppName & " and RuleName = " & ruleName & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            Return False
+        End Try
+        Return True
+    End Function
+
+    Sub ExecuteNetshCommand(arguments As String)
+        Try
+            Dim proc As New Process()
+            proc.StartInfo.FileName = "netsh"
+            proc.StartInfo.Arguments = arguments
+            proc.StartInfo.UseShellExecute = False
+            proc.StartInfo.RedirectStandardOutput = True
+            proc.StartInfo.CreateNoWindow = True
+            proc.Start()
+            Dim output As String = proc.StandardOutput.ReadToEnd()
+            proc.WaitForExit()
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"ExecuteNetshCommand with arguments = {arguments} returned result = {output}", LogType.LOG_TYPE_INFO)
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then Log($"Error in ExecuteNetshCommand with arguments = {arguments} and Error = {ex.Message}", LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Sub AddFirewallRule(ruleName As String, port As Integer)
+        Try
+            Dim command As String = $"advfirewall firewall add rule name=""{ruleName}"" dir=in action=allow protocol=TCP localport={port}"
+            ExecuteNetshCommand(command)
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then Log($"Error in AddFirewallRule for ruleName = {ruleName}, port = {port} and Error = {ex.Message}", LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Sub RemoveFirewallRule(ruleName As String)
+        Try
+            Dim command As String = $"advfirewall firewall delete rule name=""{ruleName}"""
+            ExecuteNetshCommand(command)
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then Log($"Error in RemoveFirewallRule for ruleName = {ruleName} and Error = {ex.Message}", LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Function GetOperatingSystem() As String
+        If RuntimeInformation.IsOSPlatform(OSPlatform.Windows) Then
+            Return "windows"
+        ElseIf RuntimeInformation.IsOSPlatform(OSPlatform.OSX) Then
+            Return "mac"
+        ElseIf RuntimeInformation.IsOSPlatform(OSPlatform.Linux) Then
+            Dim uname = RunShellCommand("uname", Nothing)
+            If uname.ToLower().Contains("bsd") Then
+                Return "bsd"
+            Else
+                Return "linux"
+            End If
+        Else
+            Return "unknown"
+        End If
+    End Function
+
+    Function GetArchitecture(os As String) As String
+        Dim arch = RuntimeInformation.OSArchitecture.ToString().ToLower()
+        Select Case arch
+            Case "x64"
+                If os = "windows" Then Return "win64" Else Return "amd64"
+            Case "x86"
+                If os = "windows" Then Return "win32" Else Return "386i"
+            Case "arm64"
+                If os = "windows" Then Return "winarm64" Else Return "arm64"
+            Case "arm"
+                Dim cpuinfo = RunShellCommand("uname -m", Nothing)
+                If cpuinfo.Contains("v6") Then Return "armv6"
+                If cpuinfo.Contains("v7") Then Return "armv7"
+                If cpuinfo.Contains("v8") Then Return "armv8"
+                Return "arm"
+            Case "mipsel"
+                Return "mipsel"
+            Case Else
+                Return arch
+        End Select
+    End Function
+
+    Function ExecutableChecker(exeName As String, requiredVersion As String, path As String) As Boolean
+        Dim isInstalled As Boolean = False
+        Dim installedVersion As String = ""
+
+        If RuntimeInformation.IsOSPlatform(OSPlatform.Windows) Then
+            Dim exePath As String = $"{path}{exeName}.exe" ' Adjust path as needed
+
+            If File.Exists(exePath) Then
+                Dim versionInfo = FileVersionInfo.GetVersionInfo(exePath)
+                If versionInfo.FileVersion IsNot Nothing Then installedVersion = versionInfo.FileVersion
+                isInstalled = True
+            End If
+
+        ElseIf RuntimeInformation.IsOSPlatform(OSPlatform.Linux) OrElse RuntimeInformation.IsOSPlatform(OSPlatform.OSX) Then
+            Dim versionOutput = RunShellCommand($"{exeName} -version", Nothing)
+
+            If Not String.IsNullOrEmpty(versionOutput) Then
+                ' Try to extract version from output (customize for your target executable)
+                Dim match = System.Text.RegularExpressions.Regex.Match(versionOutput, "\d+(\.\d+)+")
+                If match.Success Then
+                    installedVersion = match.Value
+                    isInstalled = True
+                End If
+            End If
+        End If
+
+        If isInstalled Then
+            If installedVersion.StartsWith(requiredVersion) Then
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"ExecutableChecker found {exeName} installed with required Version: {installedVersion}", LogType.LOG_TYPE_INFO)
+                Return True
+            Else
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"ExecutableChecker found {exeName} installed with versionInstalled: {installedVersion} but needs {requiredVersion }", LogType.LOG_TYPE_INFO)
+            End If
+        Else
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"ExecutableChecker did find {exeName} installed", LogType.LOG_TYPE_INFO)
+        End If
+        Return False
+    End Function
+
+    Function GetDownloadPath() As String
+        If RuntimeInformation.IsOSPlatform(OSPlatform.Windows) Then
+            Return Path.GetTempPath()
+        Else
+            Dim home As String = Environment.GetEnvironmentVariable("HOME")
+            Return Path.Combine(home, "Downloads")
+        End If
+    End Function
+
+    Sub RunProcess(filePath As String, maxWait As Integer)
+        Dim psi As New ProcessStartInfo() With {
+            .FileName = filePath,
+            .UseShellExecute = False,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True
+        }
+        Using proc As New Process()
+            Process.Start(psi)
+            ' Optional timeout (x seconds)
+            If Not proc.WaitForExit(maxWait * 1000) Then
+                proc.Kill()
+                Exit Sub
+            End If
+        End Using
+    End Sub
+
+    Public Function SerializeToXmlString(nodeList As XmlNodeList) As String
+        Try
+            Dim result As New StringBuilder()
+            For Each node As XmlNode In nodeList
+                result.Append(node.OuterXml)
+            Next
+            Return result.ToString()
+        Catch ex As Exception
+        End Try
+        Return ""
+    End Function
+
+    Function GetMacFromIP(ipAddress As String, ByRef macAddress As String) As String
+        macAddress = ""
+        Try
+            ' Step 1: Ping the IP to populate ARP cache
+            Dim pingSuccess = My.Computer.Network.Ping(ipAddress, 1000)
+
+            If Not pingSuccess Then
+                Return "IP unreachable or not responding"
+            End If
+
+            ' Step 2: Determine platform
+            Dim isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+
+            ' Step 3: First try ARP
+            Dim arpResult = RunCommand("arp", If(isWindows, "-a " & ipAddress, "-n " & ipAddress))
+            If Not String.IsNullOrEmpty(arpResult) Then
+                Dim mac = ParseMacFromOutput(arpResult, ipAddress, isWindows)
+                If mac IsNot Nothing Then
+                    macAddress = mac
+                    Return ""
+                End If
+            End If
+
+            ' Step 4: On non-Windows, try ip neighbor
+            If Not isWindows Then
+                Dim ipResult = RunCommand("ip", "neighbor show " & ipAddress)
+                If Not String.IsNullOrEmpty(ipResult) Then
+                    Dim parts = ipResult.Split({" "c}, StringSplitOptions.RemoveEmptyEntries)
+                    Dim lladdrIndex = Array.IndexOf(parts, "lladdr")
+                    If lladdrIndex <> -1 AndAlso lladdrIndex + 1 < parts.Length Then
+                        macAddress = parts(lladdrIndex + 1)
+                        Return ""
+                    End If
+                End If
+            End If
+
+        Catch ex As Exception
+            Return "Error: " & ex.Message
+        End Try
+
+        Return "MAC not found"
+    End Function
+
+    Private Function RunCommand(command As String, args As String) As String
+        Try
+            Dim p As New Process()
+            p.StartInfo.FileName = command
+            p.StartInfo.Arguments = args
+            p.StartInfo.RedirectStandardOutput = True
+            p.StartInfo.UseShellExecute = False
+            p.StartInfo.CreateNoWindow = True
+            p.Start()
+            Dim output As String = p.StandardOutput.ReadToEnd()
+            p.WaitForExit()
+            Return output
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+    Private Function ParseMacFromOutput(output As String, ipAddress As String, isWindows As Boolean) As String
+        Dim lines = output.Split({vbCrLf, vbLf}, StringSplitOptions.RemoveEmptyEntries)
+        For Each line In lines
+            If line.Contains(ipAddress) Then
+                Dim parts = line.Split({" ", vbTab}, StringSplitOptions.RemoveEmptyEntries)
+                If isWindows Then
+                    ' Windows format: Interface Address Physical Type
+                    If parts.Length >= 3 Then Return parts(1)
+                Else
+                    ' Linux/macOS format: IP HW-addr Flags Mask Device
+                    If parts.Length >= 3 Then Return parts(2)
+                End If
+            End If
+        Next
+        Return Nothing
+    End Function
+
+    Function GetIPFromMac(macAddress As String, ByRef ipAddress As String) As String
+        ipAddress = ""
+        Try
+            Dim isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            Dim output As String = Nothing
+
+            ' Try ARP on Windows or Linux
+            output = RunCommand("arp", If(isWindows, "-a", "-n"))
+
+            If Not String.IsNullOrEmpty(output) Then
+                Dim ip = ParseIPFromArpOutput(output, macAddress, isWindows)
+                If ip IsNot Nothing Then
+                    ipAddress = ip
+                    Return ""
+                End If
+            End If
+
+            ' On Linux, try 'ip neighbor show'
+            If Not isWindows Then
+                output = RunCommand("ip", "neighbor show")
+                If Not String.IsNullOrEmpty(output) Then
+                    Dim lines = output.Split({vbCrLf, vbLf}, StringSplitOptions.RemoveEmptyEntries)
+                    For Each line In lines
+                        If line.IndexOf(macAddress, StringComparison.OrdinalIgnoreCase) >= 0 Then
+                            Dim parts = line.Split({" "c}, StringSplitOptions.RemoveEmptyEntries)
+                            If parts.Length >= 1 Then
+                                ipAddress = parts(0) ' IP address is first
+                                Return ""
+                            End If
+                        End If
+                    Next
+                End If
+            End If
+
+        Catch ex As Exception
+            Return "Error: " & ex.Message
+        End Try
+
+        Return "IP not found"
+    End Function
+
+    Private Function ParseIPFromArpOutput(output As String, macAddress As String, isWindows As Boolean) As String
+        Dim lines = output.Split({vbCrLf, vbLf}, StringSplitOptions.RemoveEmptyEntries)
+        For Each line In lines
+            If line.IndexOf(macAddress, StringComparison.OrdinalIgnoreCase) >= 0 Then
+                Dim parts = line.Split({" ", vbTab}, StringSplitOptions.RemoveEmptyEntries)
+                If isWindows Then
+                    ' Format: Interface Address Physical Type
+                    If parts.Length >= 2 Then Return parts(0)
+                Else
+                    ' Format: IP HW-addr Flags Mask Device
+                    If parts.Length >= 1 Then Return parts(0)
+                End If
+            End If
+        Next
+        Return Nothing
+    End Function
+
+    Public Function GitHubCompressedDownloader(githubUrl As String, downloadFileName As String, extractFilenames As String(), downloadPath As String) As Boolean
+        Try
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"GitHubCompressedDownloader is downloading from: {githubUrl} to: {downloadFileName} with targetNames: { String.Join(", ", extractFilenames)}", LogType.LOG_TYPE_INFO)
+
+            Dim fullDownloadFilename As String = Path.Combine(downloadPath, downloadFileName)
+
+            ' Delete existing ZIP if it exists
+            Try
+                If File.Exists(fullDownloadFilename) Then
+                    File.Delete(fullDownloadFilename)
+                End If
+            Catch ex As Exception
+                If piDebuglevel > DebugLevel.dlOff Then Log($"GitHubCompressedDownloader has error deleting existing download file = {fullDownloadFilename} with error = {ex.Message}", LogType.LOG_TYPE_ERROR)
+            End Try
+
+            ' Download ZIP
+            Try
+                Using client As New HttpClient()
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("StreamCamPlugin/1.0")
+
+                    Dim response = client.GetAsync(githubUrl).GetAwaiter().GetResult()
+
+                    If Not response.IsSuccessStatusCode Then
+                        If piDebuglevel > DebugLevel.dlOff Then Log($"GitHubCompressedDownloader has error downloading file: HTTP {response.StatusCode}", LogType.LOG_TYPE_ERROR)
+                        Return False
+                    End If
+
+                    Dim contentType = response.Content.Headers.ContentType?.MediaType
+                    If contentType IsNot Nothing AndAlso contentType.Contains("html") Then
+                        If piDebuglevel > DebugLevel.dlOff Then Log($"GitHubCompressedDownloader downloaded content is HTML, likely an error or redirect page. Aborting.", LogType.LOG_TYPE_ERROR)
+                        Return False
+                    End If
+
+                    Dim zipBytes = response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+                    File.WriteAllBytes(fullDownloadFilename, zipBytes)
+                End Using
+            Catch ex As Exception
+                If piDebuglevel > DebugLevel.dlOff Then Log($"GitHubCompressedDownloader has error downloading a new file with error = {ex.Message}", LogType.LOG_TYPE_ERROR)
+                Return False
+            End Try
+
+            ' dcor for testing if I want to check hash for tampering
+            'Dim expectedHash As String = "3259a04c402cd22b39092119151140d91b7d9898591c8d94422c6f84eddf7380"
+            'Dim actualHash As String = ComputeSha256(fullDownloadFilename)
+
+            'If String.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase) Then
+            'Log("ZIP hash verified successfully.", LogType.LOG_TYPE_INFO)
+            'Else
+            'Log($"ZIP hash mismatch! Expected: {expectedHash}, Got: {actualHash}", LogType.LOG_TYPE_ERROR)
+            'Return False
+            'End If
+
+            ' Extract based on platform
+            If RuntimeInformation.IsOSPlatform(OSPlatform.Windows) OrElse
+                (RuntimeInformation.IsOSPlatform(OSPlatform.OSX) AndAlso fullDownloadFilename.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) Then
+
+                For Each extractFilename In extractFilenames
+                    If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"GitHubCompressedDownloader is deleting file = {Path.Combine(downloadPath, extractFilename)}...", LogType.LOG_TYPE_INFO)
+                    Try
+                        If File.Exists(Path.Combine(downloadPath, extractFilename)) Then
+                            File.Delete(Path.Combine(downloadPath, extractFilename))
+                        End If
+                    Catch ex As Exception
+                        If piDebuglevel > DebugLevel.dlOff Then Log($"GitHubCompressedDownloader has error deleting existing target file = {Path.Combine(downloadPath, extractFilename)} with error = {ex.Message}", LogType.LOG_TYPE_ERROR)
+                    End Try
+                Next
+
+                ZipFile.ExtractToDirectory(fullDownloadFilename, downloadPath)
+
+            ElseIf RuntimeInformation.IsOSPlatform(OSPlatform.Linux) OrElse RuntimeInformation.IsOSPlatform(OSPlatform.OSX) Then
+                If fullDownloadFilename.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase) Then
+                    If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"GitHubCompressedDownloader is extracting  {fullDownloadFilename} using system 'tar' to {downloadPath}", LogType.LOG_TYPE_INFO)
+                    Dim result As String = RunShellCommand($"tar -xvzf ""{fullDownloadFilename}"" -C ""{downloadPath}""", Nothing)
+                    If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"GitHubCompressedDownloader extracted {fullDownloadFilename} with result = {result}", LogType.LOG_TYPE_INFO)
+                Else
+                    ChangeLinuxFileAccessRights("777", fullDownloadFilename)
+                    If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GitHubCompressedDownloader updated exec rights on Unix.", LogType.LOG_TYPE_INFO)
+                End If
+            Else
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GitHubCompressedDownloader unsupported operating system.", LogType.LOG_TYPE_WARNING)
+                Return False
+            End If
+
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("GitHubCompressedDownloader download & decompression complete.", LogType.LOG_TYPE_INFO)
+            Return True
+
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then Log($"Error in GitHubCompressedDownloader with error = {ex.Message}", LogType.LOG_TYPE_ERROR)
+            Return False
+        End Try
+        Return True
+    End Function
+
+    Public Function ComputeSha256(filePath As String) As String
+        ' computes a hash for the downloaded (zip) file
+        Using sha As SHA256 = SHA256.Create()
+            Using stream = File.OpenRead(filePath)
+                Dim hashBytes = sha.ComputeHash(stream)
+                Return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant()
+            End Using
+        End Using
+    End Function
+
     Public NotInheritable Class Simple3Des
         Private TripleDes As New TripleDESCryptoServiceProvider
 
@@ -1502,7 +2269,7 @@ Module util
         Public Function DecryptData(ByVal encryptedtext As String) As String
             ' Convert the encrypted text string to a byte array.
             If encryptedtext = "" Then
-                If piDebuglevel > DebugLevel.dlEvents Then Log("DecryptData , no data", LogType.LOG_TYPE_INFO)
+                If piDebuglevel > DebugLevel.dlEvents Then Log("DecryptData called without data", LogType.LOG_TYPE_INFO)
                 Return ""
             End If
             Try
@@ -1519,10 +2286,291 @@ Module util
                 ' Convert the plaintext stream to a string.
                 Return System.Text.Encoding.Unicode.GetString(ms.ToArray)
             Catch ex As Exception
-                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("Error in DecryptData with error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"Error in DecryptData with txt = {encryptedtext} and Error = {ex.Message}", LogType.LOG_TYPE_ERROR)
             End Try
             Return ""
         End Function
     End Class
+
+
+
+#Region "Linux Functions"
+    Function RunShellCommand(command As String, Optional dummy As Object = Nothing) As String
+        If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"RunShellCommand called with cmd = {command}", LogType.LOG_TYPE_INFO)
+
+        Try
+            Dim psi As New ProcessStartInfo("/bin/bash", $"-c ""{command}""") With {
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .UseShellExecute = False,
+            .CreateNoWindow = True
+        }
+
+            Dim output As New System.Text.StringBuilder()
+            Dim errorOutput As New System.Text.StringBuilder()
+
+            Using proc As New Process()
+                proc.StartInfo = psi
+                AddHandler proc.OutputDataReceived, Sub(sender, e)
+                                                        If e.Data IsNot Nothing Then output.AppendLine(e.Data)
+                                                    End Sub
+                AddHandler proc.ErrorDataReceived, Sub(sender, e)
+                                                       If e.Data IsNot Nothing Then errorOutput.AppendLine(e.Data)
+                                                   End Sub
+
+                proc.Start()
+                proc.BeginOutputReadLine()
+                proc.BeginErrorReadLine()
+                proc.WaitForExit()
+
+                Dim result As String = $"[STDOUT]{Environment.NewLine}{output.ToString().Trim()}" &
+                   $"{Environment.NewLine}[STDERR]{Environment.NewLine}{errorOutput.ToString().Trim()}" &
+                   $"{Environment.NewLine}[ExitCode] {proc.ExitCode}"
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"RunShellCommand called with cmd = {command} and result = {result}", LogType.LOG_TYPE_INFO)
+
+                Return output.ToString.Trim()
+
+            End Using
+
+        Catch ex As Exception
+            Return $"[EXCEPTION] {ex.Message}"
+        End Try
+    End Function
+
+    Public Function IsNodeInstalled() As String
+        Try
+            Dim startInfo As New ProcessStartInfo() With {
+            .FileName = "/bin/bash",
+            .Arguments = "-c ""node -v""",
+            .UseShellExecute = False,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .CreateNoWindow = True
+        }
+
+            Using proc As New Process()
+                proc.StartInfo = startInfo
+                proc.Start()
+
+                Dim output As String = proc.StandardOutput.ReadToEnd().Trim()
+                Dim errorOutput As String = proc.StandardError.ReadToEnd().Trim()
+
+                ' Timeout safeguard
+                If Not proc.WaitForExit(5000) Then
+                    proc.Kill()
+                    If piDebuglevel > DebugLevel.dlOff Then Log("IsNodeInstalled timed out", LogType.LOG_TYPE_WARNING)
+                    Return ""
+                End If
+
+                If piDebuglevel > DebugLevel.dlEvents Then
+                    Log($"IsNodeInstalled stdout = {output}", LogType.LOG_TYPE_INFO)
+                    If Not String.IsNullOrWhiteSpace(errorOutput) Then
+                        Log($"IsNodeInstalled stderr = {errorOutput}", LogType.LOG_TYPE_WARNING)
+                    End If
+                End If
+
+                If output.StartsWith("v") AndAlso output.Length > 1 Then
+                    Return output.Substring(1) ' Return version number without 'v'
+                End If
+            End Using
+
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then
+                Log("Error in IsNodeInstalled: " & ex.Message, LogType.LOG_TYPE_ERROR)
+            End If
+        End Try
+
+        Return ""
+    End Function
+
+    Public Function IsArmArchitecture() As Boolean
+        Try
+            Dim startInfo As New ProcessStartInfo() With {
+            .FileName = "uname",
+            .Arguments = "-m",
+            .UseShellExecute = False,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .CreateNoWindow = True
+        }
+
+            Using proc As New Process()
+                proc.StartInfo = startInfo
+                proc.Start()
+
+                Dim output As String = proc.StandardOutput.ReadToEnd()
+                Dim errorOutput As String = proc.StandardError.ReadToEnd()
+
+                ' Timeout safeguard
+                If Not proc.WaitForExit(5000) Then
+                    proc.Kill()
+                    If piDebuglevel > DebugLevel.dlOff Then Log("IsArmArchitecture timeout calling uname", LogType.LOG_TYPE_ERROR)
+                    Return False
+                End If
+
+                output = output.Trim().ToUpperInvariant()
+
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then
+                    Log("IsArmArchitecture received uname = " & output, LogType.LOG_TYPE_INFO)
+                    If Not String.IsNullOrWhiteSpace(errorOutput) Then
+                        Log("IsArmArchitecture stderr = " & errorOutput.Trim(), LogType.LOG_TYPE_WARNING)
+                    End If
+                End If
+
+                If output.Contains("ARM") OrElse output.Contains("AARCH") Then
+                    Return True
+                End If
+
+            End Using
+
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then
+                Log("Error in IsArmArchitecture: " & ex.Message, LogType.LOG_TYPE_ERROR)
+            End If
+            Return False
+        End Try
+
+        Return False
+    End Function
+
+    Public Sub ChangeLinuxFileAccessRights(newAccessrights As String, fileName As String)
+        ' first set exe priviliges Execute the chmod command
+        Try
+            Dim command As String = "sudo chmod " & newAccessrights & " " & fileName
+            Dim SetRightsProcess = New Process()
+            SetRightsProcess.StartInfo.FileName = "/bin/bash"
+            SetRightsProcess.StartInfo.Arguments = " -c """ & command & """"
+            SetRightsProcess.StartInfo.RedirectStandardOutput = True
+            SetRightsProcess.StartInfo.RedirectStandardError = True
+            SetRightsProcess.StartInfo.UseShellExecute = False
+            SetRightsProcess.Start()
+            Dim output As String = SetRightsProcess.StandardOutput.ReadToEnd()
+            If piDebuglevel > DebugLevel.dlErrorsOnly Then Log("ChangeLinuxFileAccessRights set accessrights = " & newAccessrights & " for file = " & fileName & " with result = " & output, LogType.LOG_TYPE_INFO)
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in ChangeLinuxFileAccessRights setting accessrights = " & newAccessrights & " for file = " & fileName & " with Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+        End Try
+    End Sub
+
+    Public Function RunBashCmd(cmd As String) As String
+        Try
+            Dim startInfo As New ProcessStartInfo()
+            startInfo.FileName = "/bin/bash"
+            startInfo.Arguments = cmd '"-c """ & cmd & """"
+            startInfo.UseShellExecute = False
+            startInfo.RedirectStandardOutput = True
+            startInfo.RedirectStandardError = True
+            Dim Process = New Process()
+            Process.StartInfo = startInfo
+            Process.Start()
+            Dim output As String = Process.StandardOutput.ReadToEnd()
+            If piDebuglevel > DebugLevel.dlEvents Then Log("RunBashCmd received response = " & output, LogType.LOG_TYPE_INFO)
+            Return output
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then Log("Error in RunBashCmd with cmd = " & cmd & " and Error = " & ex.Message, LogType.LOG_TYPE_ERROR)
+            Return ""
+        End Try
+        Return ""
+    End Function
+
+    Public Function SendLinuxCmd(cmd As String, argument As String) As String
+        Try
+            Dim startInfo As New ProcessStartInfo() With {
+            .FileName = cmd,
+            .Arguments = argument,
+            .UseShellExecute = False,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .CreateNoWindow = True
+        }
+
+            Using proc As New Process()
+                proc.StartInfo = startInfo
+                proc.Start()
+
+                Dim output As String = proc.StandardOutput.ReadToEnd().Trim()
+                Dim errorOutput As String = proc.StandardError.ReadToEnd().Trim()
+
+                If Not proc.WaitForExit(5000) Then
+                    proc.Kill()
+                    If piDebuglevel > DebugLevel.dlOff Then Log($"SendLinuxCmd timed out for: {cmd} {argument}", LogType.LOG_TYPE_WARNING)
+                    Return ""
+                End If
+
+                If piDebuglevel > DebugLevel.dlEvents Then
+                    Log($"SendLinuxCmd response: {output}", LogType.LOG_TYPE_INFO)
+                    If Not String.IsNullOrWhiteSpace(errorOutput) Then
+                        Log($"SendLinuxCmd stderr: {errorOutput}", LogType.LOG_TYPE_WARNING)
+                    End If
+                End If
+
+                Return output
+            End Using
+
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then
+                Log($"Error in SendLinuxCmd: cmd = {cmd}, args = {argument}, err = {ex.Message}", LogType.LOG_TYPE_ERROR)
+            End If
+            Return ""
+        End Try
+    End Function
+
+    Public Function StartLinuxProcess(Command As String, arguments As String) As String
+        Try
+            Dim psi As New ProcessStartInfo() With {
+                .FileName = Command,
+                .Arguments = arguments,
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True,
+                .UseShellExecute = False,
+                .CreateNoWindow = True
+            }
+            Using process As Process = Process.Start(psi)
+                Dim output As String = process.StandardOutput.ReadToEnd()
+                Dim errors As String = process.StandardError.ReadToEnd()
+                process.WaitForExit()
+                If piDebuglevel > DebugLevel.dlErrorsOnly Then Log($"StartLinuxProcess received response = {output}", LogType.LOG_TYPE_INFO)
+                If Not String.IsNullOrWhiteSpace(errors) Then
+                    Console.WriteLine("Errors
+                " & vbCrLf & errors)
+                    If piDebuglevel > DebugLevel.dlOff Then Log($"Warning in StartLinuxProcess received and Error response = {errors}", LogType.LOG_TYPE_WARNING)
+                    Return errors
+                End If
+                Return output
+            End Using
+        Catch ex As Exception
+            If piDebuglevel > DebugLevel.dlOff Then Log($"Error in StartLinuxProcess with command = {Command}, arguments = {arguments} and Error = {ex.Message }", LogType.LOG_TYPE_ERROR)
+            Return ex.Message
+        End Try
+
+    End Function
+
+    Public Function FindLinuxProgramIsRunning(programName As String) As String
+        Dim nodeProcesses As String = SendLinuxCmd("ps", " -ef")
+        If nodeProcesses = "" Then Return ""
+        Dim nodeProcessStrings As String() = nodeProcesses.Split(vbLf)
+        If nodeProcessStrings IsNot Nothing Then
+            If piDebuglevel > DebugLevel.dlEvents Then Log("FindLinuxProgramIsRunning found " & nodeProcessStrings.Count.ToString & " processes", LogType.LOG_TYPE_INFO)
+            If nodeProcesses.Count < 2 Then Return ""
+            ' the first line will be the header use it to find the location of the collumns
+            Dim locationPID As Integer = nodeProcessStrings(0).IndexOf("PID")
+            Dim locationCMD As Integer = nodeProcessStrings(0).IndexOf("CMD")
+            If piDebuglevel > DebugLevel.dlEvents Then Log("FindLinuxProgramIsRunning found PID offset = " & locationPID.ToString & " and CMD offset = " & locationCMD.ToString & " in Entry = " & nodeProcessStrings(0), LogType.LOG_TYPE_INFO)
+            For Each entry As String In nodeProcessStrings
+                If entry.ToUpper.IndexOf(programName.ToUpper) <> -1 Then
+                    If piDebuglevel > DebugLevel.dlEvents Then Log("FindLinuxProgramIsRunning found process with name = " & programName & " and info = " & entry, LogType.LOG_TYPE_INFO)
+                    Dim index As Integer = locationPID + 2  'the column is lined up with the right of the word PID
+                    Dim entryParts As String() = entry.Split(CType(" ", Char()), StringSplitOptions.RemoveEmptyEntries)
+                    If entryParts.Count > 1 Then
+                        If piDebuglevel > DebugLevel.dlEvents Then Log("FindLinuxProgramIsRunning found process with name = " & programName & " and Pid = " & entryParts(1), LogType.LOG_TYPE_INFO)
+                        Return entryParts(1).Trim
+                    End If
+                End If
+            Next
+        End If
+        Return ""
+    End Function
+
+#End Region
+
 
 End Module
